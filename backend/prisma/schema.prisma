@@ -1,0 +1,510 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AssessmentStatus {
+  AGREEMENT_PENDING
+  AGREEMENT_SIGNED
+  QB_CUSTOMER_CREATED
+  INVOICE_CREATED
+  INVOICE_SENT
+  PAYMENT_PENDING
+  PAYMENT_VERIFYING
+  PAID_VERIFIED
+  ACCOUNT_INVITED
+  ACCOUNT_CREATED
+  PROFILE_IN_PROGRESS
+  PROFILE_COMPLETED
+  DOCUMENTS_IN_PROGRESS
+  DOCUMENTS_SUBMITTED
+  ERROR
+  @@map("assessment_status")
+}
+
+enum ClientType {
+  INDIVIDUAL
+  BUSINESS_OWNER
+  REAL_ESTATE_INVESTOR
+  W2_HIGH_EARNER
+  OTHER
+  @@map("assessment_client_type")
+}
+
+enum HouseholdMemberType {
+  PRIMARY
+  SPOUSE
+  DEPENDENT
+  @@map("assessment_household_member_type")
+}
+
+enum ResidentStatus {
+  US_CITIZEN
+  GREEN_CARD_HOLDER
+  VISA
+  OTHER
+  @@map("assessment_resident_status")
+}
+
+enum MaritalStatus {
+  SINGLE
+  MARRIED
+  DIVORCED
+  WIDOWED
+  @@map("assessment_marital_status")
+}
+
+enum DocumentStatus {
+  PENDING
+  UPLOADED
+  QUARANTINED
+  CLEAN
+  REJECTED
+  DELETED
+  NOT_APPLICABLE
+  @@map("assessment_document_status")
+}
+
+enum DocumentCategory {
+  TAX_RETURNS
+  W2_INCOME
+  OTHER_INCOME
+  INVESTMENT_PORTFOLIO
+  RETIREMENT_ACCOUNTS
+  MORTGAGE_STATEMENTS
+  BUSINESS_LLC_DOCUMENTS
+  ESTATE_PLAN
+  LIFE_INSURANCE
+  OTHER_ASSESSMENT_DETAILS
+  @@map("assessment_document_category")
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+  @@map("assessment_delivery_status")
+}
+
+enum WebhookStatus {
+  RECEIVED
+  VERIFIED
+  PROCESSED
+  IGNORED
+  FAILED
+  @@map("assessment_webhook_status")
+}
+
+enum ReconciliationStatus {
+  PENDING
+  VERIFIED_PAID
+  STILL_OPEN
+  FAILED
+  @@map("assessment_reconciliation_status")
+}
+
+model AssessmentClient {
+  id              String    @id @default(uuid()) @db.Uuid
+  cognitoUserId   String?   @unique @map("cognito_user_id") @db.VarChar(128)
+  normalizedEmail String    @unique @map("normalized_email") @db.VarChar(320)
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  sessions  AssessmentSession[]
+  profiles  ClientProfile[]
+  documents DocumentMetadata[]
+  auditLogs AuditLog[]
+
+  @@map("assessment_clients")
+}
+
+model AssessmentSession {
+  id                       String           @id @default(uuid()) @db.Uuid
+  clientId                 String?          @map("client_id") @db.Uuid
+  normalizedEmail          String           @map("normalized_email") @db.VarChar(320)
+  phone                    String           @db.VarChar(32)
+  firstName                String           @map("first_name") @db.VarChar(60)
+  middleName               String?          @map("middle_name") @db.VarChar(60)
+  lastName                 String           @map("last_name") @db.VarChar(60)
+  dateOfBirth              DateTime         @map("date_of_birth") @db.Date
+  clientType               ClientType       @map("client_type")
+  businessName             String?          @map("business_name") @db.VarChar(255)
+  state                    String           @db.VarChar(2)
+  incomeRange              String?          @map("income_range") @db.VarChar(50)
+  estimatedTaxPaidRange    String?          @map("estimated_tax_paid_range") @db.VarChar(50)
+  consentAcceptedAt        DateTime         @map("consent_accepted_at")
+  consentVersion           String           @default("assessment-start-v1") @map("consent_version") @db.VarChar(50)
+  assessmentYear           Int              @map("assessment_year")
+  serviceCode              String           @default("TAX_ASSESSMENT") @map("service_code") @db.VarChar(50)
+  serviceAmount            Decimal          @default(2997) @map("service_amount") @db.Decimal(10, 2)
+  currency                 String           @default("USD") @db.VarChar(3)
+  status                   AssessmentStatus @default(AGREEMENT_PENDING)
+  statusTokenHash          String           @unique @map("status_token_hash") @db.Char(64)
+  statusTokenExpiresAt     DateTime         @map("status_token_expires_at")
+  qbCustomerId             String?          @map("qb_customer_id") @db.VarChar(64)
+  qbInvoiceId              String?          @unique @map("qb_invoice_id") @db.VarChar(64)
+  qbInvoiceNumber          String?          @map("qb_invoice_number") @db.VarChar(64)
+  qbInvoiceBalance         Decimal?         @map("qb_invoice_balance") @db.Decimal(10, 2)
+  accountCreationAllowed   Boolean          @default(false) @map("account_creation_allowed")
+  documentUploadAllowed    Boolean          @default(false) @map("document_upload_allowed")
+  paymentVerifiedAt        DateTime?        @map("payment_verified_at")
+  retentionUntil           DateTime?        @map("retention_until") @db.Date
+  legalHold                Boolean          @default(false) @map("legal_hold")
+  lastStatusCheckedAt      DateTime?        @map("last_status_checked_at")
+  lastResumeEmailSentAt    DateTime?        @map("last_resume_email_sent_at")
+  agreementSignedAt        DateTime?        @map("agreement_signed_at")
+  invoiceCreatedAt         DateTime?        @map("invoice_created_at")
+  invoiceSentAt            DateTime?        @map("invoice_sent_at")
+  qbCustomerRequestId      String?          @unique @map("qb_customer_request_id") @db.VarChar(64)
+  qbInvoiceRequestId       String?          @unique @map("qb_invoice_request_id") @db.VarChar(64)
+  deletedAt                DateTime?        @map("deleted_at")
+  createdAt                DateTime         @default(now()) @map("created_at")
+  updatedAt                DateTime         @updatedAt @map("updated_at")
+
+  client          AssessmentClient?       @relation(fields: [clientId], references: [id])
+  statusHistory   AssessmentStatusHistory[]
+  signatures      AgreementSignature[]
+  accountInvites  AccountInvite[]
+  recoveryTokens  RecoveryToken[]
+  profile         ClientProfile?
+  documents       DocumentMetadata[]
+  auditLogs       AuditLog[]
+  emailEvents     EmailEvent[]
+  reconciliations PaymentReconciliation[]
+
+  @@unique([normalizedEmail, serviceCode, assessmentYear])
+  @@index([status, updatedAt])
+  @@index([clientId, assessmentYear])
+  @@map("assessment_sessions")
+}
+
+model AssessmentStatusHistory {
+  id         String           @id @default(uuid()) @db.Uuid
+  sessionId  String           @map("session_id") @db.Uuid
+  oldStatus  AssessmentStatus? @map("old_status")
+  newStatus  AssessmentStatus @map("new_status")
+  reason     String?
+  actorType  String           @map("actor_type") @db.VarChar(40)
+  actorId    String?          @map("actor_id") @db.VarChar(128)
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  session AssessmentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("assessment_status_history")
+}
+
+model AgreementTemplate {
+  id               String    @id @default(uuid()) @db.Uuid
+  version          String    @unique @db.VarChar(40)
+  title            String    @db.VarChar(255)
+  docxS3Key        String    @map("docx_s3_key") @db.VarChar(512)
+  pdfS3Key         String    @map("pdf_s3_key") @db.VarChar(512)
+  docxSha256       String    @map("docx_sha256") @db.Char(64)
+  pdfSha256        String    @map("pdf_sha256") @db.Char(64)
+  effectiveFrom    DateTime  @map("effective_from") @db.Date
+  deprecatedAt     DateTime? @map("deprecated_at") @db.Date
+  isActive         Boolean   @default(false) @map("is_active")
+  sourceFileName   String    @default("2026 Tax Assessment Plan Legal Service Agreement - For Direct Sign v1.4.docx") @map("source_file_name") @db.VarChar(255)
+  consentTextVersion String  @default("agreement-acceptance-v1") @map("consent_text_version") @db.VarChar(50)
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  signatures AgreementSignature[]
+
+  @@map("assessment_agreement_templates")
+}
+
+model AgreementSignature {
+  id                    String   @id @default(uuid()) @db.Uuid
+  sessionId             String   @map("session_id") @db.Uuid
+  templateId            String   @map("template_id") @db.Uuid
+  typedSignatureName    String   @map("typed_signature_name") @db.VarChar(200)
+  agreementDisplayDate  DateTime @map("agreement_display_date") @db.Date
+  signedAt              DateTime @default(now()) @map("signed_at")
+  ipAddress             String?  @map("ip_address") @db.VarChar(45)
+  userAgent             String?  @map("user_agent")
+  evidencePdfS3Key      String?  @map("evidence_pdf_s3_key") @db.VarChar(512)
+  evidencePdfSha256     String?  @map("evidence_pdf_sha256") @db.Char(64)
+  templateVersion       String   @map("template_version") @db.VarChar(40)
+  templateTitle         String   @map("template_title") @db.VarChar(255)
+  docxSha256            String   @map("docx_sha256") @db.Char(64)
+  pdfSha256             String   @map("pdf_sha256") @db.Char(64)
+  consentTextVersion    String   @map("consent_text_version") @db.VarChar(50)
+  acknowledgementAcceptedAt DateTime @map("acknowledgement_accepted_at")
+  evidencePayloadSha256 String   @map("evidence_payload_sha256") @db.Char(64)
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  session  AssessmentSession @relation(fields: [sessionId], references: [id])
+  template AgreementTemplate  @relation(fields: [templateId], references: [id])
+
+  @@unique([sessionId, templateId])
+  @@unique([sessionId])
+  @@map("assessment_agreement_signatures")
+}
+
+model AccountInvite {
+  id        String    @id @default(uuid()) @db.Uuid
+  sessionId String    @map("session_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  session AssessmentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, expiresAt])
+  @@map("assessment_account_invites")
+}
+
+model RecoveryToken {
+  id              String    @id @default(uuid()) @db.Uuid
+  sessionId       String    @map("session_id") @db.Uuid
+  tokenHash       String    @unique @map("token_hash") @db.Char(64)
+  verificationType String   @map("verification_type") @db.VarChar(30)
+  expiresAt       DateTime  @map("expires_at")
+  usedAt          DateTime? @map("used_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  session AssessmentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, expiresAt])
+  @@map("assessment_recovery_tokens")
+}
+
+model ClientProfile {
+  id               String         @id @default(uuid()) @db.Uuid
+  clientId         String         @map("client_id") @db.Uuid
+  sessionId        String         @unique @map("session_id") @db.Uuid
+  householdName    String?        @map("household_name") @db.VarChar(200)
+  homeAddress      String         @map("home_address") @db.VarChar(255)
+  city             String         @db.VarChar(100)
+  state            String         @db.VarChar(2)
+  zip              String         @db.VarChar(10)
+  homeowner        Boolean
+  maritalStatus    MaritalStatus  @map("marital_status")
+  preferredContact String?        @map("preferred_contact") @db.VarChar(30)
+  residentStatus   ResidentStatus @map("resident_status")
+  ownsRealEstate   Boolean?       @map("owns_real_estate")
+  ownsBusiness     Boolean?       @map("owns_business")
+  lastYearTaxableIncome Decimal?   @map("last_year_taxable_income") @db.Decimal(14, 2)
+  projectedTaxableIncome Decimal?  @map("projected_taxable_income") @db.Decimal(14, 2)
+  lifeInsuranceInPlace Boolean?    @map("life_insurance_in_place")
+  estatePlanningInPlace Boolean?   @map("estate_planning_in_place")
+  majorPurchaseNotes String?       @map("major_purchase_notes")
+  completedAt      DateTime?      @map("completed_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  client               AssessmentClient    @relation(fields: [clientId], references: [id])
+  session              AssessmentSession   @relation(fields: [sessionId], references: [id])
+  householdMembers     HouseholdMember[]
+  properties           Property[]
+  businessInvestments  BusinessInvestment[]
+  documents            DocumentMetadata[]
+
+  @@index([clientId])
+  @@map("assessment_client_profiles")
+}
+
+model HouseholdMember {
+  id             String              @id @default(uuid()) @db.Uuid
+  profileId      String              @map("profile_id") @db.Uuid
+  memberType     HouseholdMemberType @map("member_type")
+  firstName      String              @map("first_name") @db.VarChar(60)
+  middleName     String?             @map("middle_name") @db.VarChar(60)
+  lastName       String              @map("last_name") @db.VarChar(60)
+  dateOfBirth    DateTime            @map("date_of_birth") @db.Date
+  residentStatus ResidentStatus?     @map("resident_status")
+  sex            String?             @db.VarChar(30)
+  isDependent    Boolean?            @map("is_dependent")
+  fullTimeStudent Boolean?           @map("full_time_student")
+  livesWithTaxpayer Boolean?         @map("lives_with_taxpayer")
+  notes          String?
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  profile ClientProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, memberType])
+  @@map("assessment_household_members")
+}
+
+model Property {
+  id                  String   @id @default(uuid()) @db.Uuid
+  profileId           String   @map("profile_id") @db.Uuid
+  category            String   @db.VarChar(50)
+  propertyType        String   @map("property_type") @db.VarChar(50)
+  label               String   @db.VarChar(150)
+  fullAddress         String   @map("full_address") @db.VarChar(300)
+  acquiredYear        Int      @map("acquired_year")
+  acquiredMethod      String   @map("acquired_method") @db.VarChar(40)
+  purchaseBasis       Decimal? @map("purchase_basis") @db.Decimal(14, 2)
+  currentFmv          Decimal? @map("current_fmv") @db.Decimal(14, 2)
+  landValue           Decimal? @map("land_value") @db.Decimal(14, 2)
+  mortgageBalance     Decimal? @map("mortgage_balance") @db.Decimal(14, 2)
+  monthlyPayment      Decimal? @map("monthly_payment") @db.Decimal(12, 2)
+  mortgageCompany     String?  @map("mortgage_company") @db.VarChar(150)
+  interestRate        Decimal? @map("interest_rate") @db.Decimal(7, 4)
+  mortgageTermYears   Int?     @map("mortgage_term_years")
+  taxYearUse          String   @map("tax_year_use") @db.VarChar(50)
+  rentalStartDate     DateTime? @map("rental_start_date") @db.Date
+  daysRented          Int?     @map("days_rented")
+  personalUseDays     Int?     @map("personal_use_days")
+  projectedGrossRent  Decimal? @map("projected_gross_rent") @db.Decimal(14, 2)
+  priorInterestPaid   Decimal? @map("prior_interest_paid") @db.Decimal(14, 2)
+  priorTaxPaid        Decimal? @map("prior_tax_paid") @db.Decimal(14, 2)
+  totalExpenses       Decimal? @map("total_expenses") @db.Decimal(14, 2)
+  notes               String?
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  profile ClientProfile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  owners  PropertyOwner[]
+
+  @@index([profileId])
+  @@map("assessment_properties")
+}
+
+model PropertyOwner {
+  id                  String  @id @default(uuid()) @db.Uuid
+  propertyId          String  @map("property_id") @db.Uuid
+  ownerName           String  @map("owner_name") @db.VarChar(200)
+  ownershipPercentage Decimal @map("ownership_percentage") @db.Decimal(5, 2)
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@map("assessment_property_owners")
+}
+
+model BusinessInvestment {
+  id              String   @id @default(uuid()) @db.Uuid
+  profileId       String   @map("profile_id") @db.Uuid
+  entityName      String   @map("entity_name") @db.VarChar(255)
+  entityType      String   @map("entity_type") @db.VarChar(60)
+  ownershipPercent Decimal @map("ownership_percent") @db.Decimal(5, 2)
+  taxClassification String @map("tax_classification") @db.VarChar(60)
+  priorYearIncomeLoss Decimal? @map("prior_year_income_loss") @db.Decimal(14, 2)
+  priorYear       Int?     @map("prior_year")
+  incomeLossYearMinus3 Decimal? @map("income_loss_year_minus_3") @db.Decimal(14, 2)
+  incomeLossYearMinus2 Decimal? @map("income_loss_year_minus_2") @db.Decimal(14, 2)
+  incomeLossYearMinus1 Decimal? @map("income_loss_year_minus_1") @db.Decimal(14, 2)
+  projectedCurrentYearIncomeLoss Decimal? @map("projected_current_year_income_loss") @db.Decimal(14, 2)
+  active          Boolean? @default(true)
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  profile ClientProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("assessment_business_investments")
+}
+
+model DocumentMetadata {
+  id             String           @id @default(uuid()) @db.Uuid
+  clientId       String           @map("client_id") @db.Uuid
+  sessionId      String           @map("session_id") @db.Uuid
+  profileId      String?          @map("profile_id") @db.Uuid
+  category       DocumentCategory
+  status         DocumentStatus   @default(PENDING)
+  originalName   String           @map("original_name") @db.VarChar(255)
+  s3Bucket       String           @map("s3_bucket") @db.VarChar(63)
+  s3Key          String           @unique @map("s3_key") @db.VarChar(700)
+  versionId      String?          @map("version_id") @db.VarChar(255)
+  mimeType       String           @map("mime_type") @db.VarChar(127)
+  sizeBytes      BigInt           @map("size_bytes")
+  sha256         String?          @db.Char(64)
+  retentionUntil DateTime         @map("retention_until") @db.Date
+  legalHold      Boolean          @default(false) @map("legal_hold")
+  deletedAt      DateTime?        @map("deleted_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  client  AssessmentClient  @relation(fields: [clientId], references: [id])
+  session AssessmentSession @relation(fields: [sessionId], references: [id])
+  profile ClientProfile?    @relation(fields: [profileId], references: [id])
+
+  @@index([sessionId, category, status])
+  @@map("assessment_documents")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  clientId    String?  @map("client_id") @db.Uuid
+  sessionId   String?  @map("session_id") @db.Uuid
+  action      String   @db.VarChar(100)
+  entityType  String   @map("entity_type") @db.VarChar(80)
+  entityId    String?  @map("entity_id") @db.VarChar(128)
+  actorType   String   @map("actor_type") @db.VarChar(40)
+  actorId     String?  @map("actor_id") @db.VarChar(128)
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  userAgent   String?  @map("user_agent")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  client  AssessmentClient?  @relation(fields: [clientId], references: [id])
+  session AssessmentSession? @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([action, createdAt])
+  @@map("assessment_audit_logs")
+}
+
+model EmailEvent {
+  id              String         @id @default(uuid()) @db.Uuid
+  sessionId       String?        @map("session_id") @db.Uuid
+  templateKey     String         @map("template_key") @db.VarChar(100)
+  recipientEmail  String         @map("recipient_email") @db.VarChar(320)
+  providerMessageId String?      @map("provider_message_id") @db.VarChar(255)
+  status          DeliveryStatus @default(QUEUED)
+  failureReason   String?        @map("failure_reason")
+  sentAt          DateTime?      @map("sent_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  session AssessmentSession? @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, templateKey])
+  @@map("assessment_email_events")
+}
+
+model WebhookEvent {
+  id              String        @id @default(uuid()) @db.Uuid
+  providerEventId String        @unique @map("provider_event_id") @db.VarChar(255)
+  realmId         String        @map("realm_id") @db.VarChar(64)
+  entityType      String        @map("entity_type") @db.VarChar(50)
+  entityId        String        @map("entity_id") @db.VarChar(64)
+  operation       String        @db.VarChar(30)
+  payloadSha256   String        @map("payload_sha256") @db.Char(64)
+  status          WebhookStatus @default(RECEIVED)
+  errorMessage    String?       @map("error_message")
+  receivedAt      DateTime      @default(now()) @map("received_at")
+  processedAt     DateTime?     @map("processed_at")
+
+  @@index([entityType, entityId])
+  @@map("assessment_webhook_events")
+}
+
+model PaymentReconciliation {
+  id             String               @id @default(uuid()) @db.Uuid
+  sessionId      String               @map("session_id") @db.Uuid
+  status         ReconciliationStatus @default(PENDING)
+  invoiceBalance Decimal?             @map("invoice_balance") @db.Decimal(10, 2)
+  checkedAt      DateTime             @default(now()) @map("checked_at")
+  errorMessage   String?              @map("error_message")
+
+  session AssessmentSession @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, checkedAt])
+  @@map("assessment_payment_reconciliations")
+}

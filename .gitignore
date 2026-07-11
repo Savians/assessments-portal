@@ -1,0 +1,21 @@
+# Dependencies and builds
+node_modules/
+.next/
+dist/
+coverage/
+cdk.out/
+tmp/
+*.tsbuildinfo
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local tooling
+.aws-sam/
+.amplify/
+.DS_Store
+Thumbs.db
+*.log

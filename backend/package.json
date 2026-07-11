@@ -1,0 +1,54 @@
+{
+    "name":  "savians-assessments-backend",
+    "version":  "0.1.0",
+    "private":  true,
+    "engines":  {
+                    "node":  "\u003e=20.0.0"
+                },
+    "scripts":  {
+                    "build":  "tsc -p tsconfig.json",
+                    "typecheck":  "tsc -p tsconfig.json --noEmit",
+                    "lint":  "eslint . --max-warnings=0",
+                    "test":  "vitest run --configLoader runner --config vitest.config.mjs",
+                    "test:watch":  "vitest --configLoader runner --config vitest.config.mjs",
+                    "prisma:validate":  "prisma validate",
+                    "prisma:generate":  "prisma generate",
+                    "cdk:synth":  "cdk synth",
+                    "cdk:diff":  "cdk diff",
+                    "cdk:deploy":  "cdk deploy",
+                    "assessment:migrate":  "ts-node scripts/assessment-migrate.ts apply",
+                    "assessment:migrate:status":  "ts-node scripts/assessment-migrate.ts status",
+                    "legal:render":  "python scripts/render-legal-agreement.py",
+                    "legal:publish":  "ts-node scripts/publish-legal-template.ts",
+                    "quickbooks:configure-item":  "ts-node scripts/qbo-configure-service-item.ts",
+                    "assessment:db:verify":  "ts-node scripts/assessment-db-verify.ts",
+                    "legal:s3:verify":  "ts-node scripts/verify-legal-template-s3.ts",
+                    "secrets:sync:staging":  "ts-node scripts/sync-assessment-secret.ts",
+                    "quickbooks:controlled-test":  "ts-node scripts/controlled-sandbox-test.ts"
+                },
+    "dependencies":  {
+                         "@aws-sdk/client-cognito-identity-provider":  "^3.890.0",
+                         "@aws-sdk/client-s3":  "^3.890.0",
+                         "@aws-sdk/client-secrets-manager":  "^3.890.0",
+                         "@aws-sdk/s3-request-presigner":  "^3.890.0",
+                         "@prisma/client":  "^6.16.0",
+                         "aws-cdk-lib":  "^2.220.0",
+                         "constructs":  "^10.4.2",
+                         "resend":  "^6.0.0",
+                         "zod":  "^4.1.0"
+                     },
+    "devDependencies":  {
+                            "@types/aws-lambda":  "^8.10.152",
+                            "@types/node":  "^22.18.0",
+                            "aws-cdk":  "^2.1029.0",
+                            "dotenv":  "^17.2.2",
+                            "esbuild":  "^0.25.9",
+                            "eslint":  "^9.35.0",
+                            "prettier":  "^3.6.2",
+                            "prisma":  "^6.16.0",
+                            "ts-node":  "^10.9.2",
+                            "typescript":  "^5.9.2",
+                            "typescript-eslint":  "^8.43.0",
+                            "vitest":  "^3.2.4"
+                        }
+}
