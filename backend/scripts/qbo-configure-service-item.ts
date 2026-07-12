@@ -1,13 +1,16 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import "dotenv/config";
 import { z } from "zod";
+import { config as loadDotenv } from "dotenv";
 
 const tokenSchema = z.object({ access_token: z.string(), refresh_token: z.string() });
 const companySchema = z.object({ CompanyInfo: z.object({ CompanyName: z.string(), LegalName: z.string().optional() }) });
 const itemsSchema = z.object({ QueryResponse: z.object({ Item: z.array(z.object({ Id: z.string(), Name: z.string(), Type: z.string().optional(), Active: z.boolean().optional(), UnitPrice: z.number().optional(), IncomeAccountRef: z.object({ value: z.string(), name: z.string().optional() }).optional() })).optional() }) });
 const backend = path.resolve(__dirname, "..");
-const envPath = path.join(backend, ".env");
+const envFileArg = process.argv.find((arg) => arg.startsWith("--env-file="));
+const envFile = envFileArg?.slice("--env-file=".length) ?? ".env";
+const envPath = path.isAbsolute(envFile) ? envFile : path.join(backend, envFile);
+loadDotenv({ path: envPath });
 const responseError = async (response: Response, prefix: string): Promise<string> => {
   const body = await response.text();
   if (!body.trim()) return `${prefix} (${response.status})`;
