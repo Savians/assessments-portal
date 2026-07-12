@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { APP_NAME } from "@/lib/constants";
@@ -17,8 +18,15 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         <AppProviders>
           <header className="border-b border-slate-200 bg-white">
             <div className="page-shell flex min-h-16 items-center justify-between gap-4">
-              <Link className="focus-ring font-semibold tracking-tight text-navy-800" href="/">
-                Savians Tax Advisors
+              <Link className="focus-ring inline-flex items-center" href="/" aria-label="Savians Tax Advisors home">
+                <Image
+                  src="/savians-logo.png"
+                  alt="Savians Tax Advisors"
+                  width={1996}
+                  height={773}
+                  priority
+                  className="h-10 w-auto sm:h-12"
+                />
               </Link>
               <span className="hidden text-sm text-slate-500 sm:block">
                 Secure Tax Assessment Portal
