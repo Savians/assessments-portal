@@ -17,6 +17,9 @@ Last updated: 2026-07-16
 - A valid code is atomically consumed before the auth Lambda changes the permanent Cognito password, preventing replay.
 - Password policy is validated by the backend before Cognito receives the new password.
 - Recovery is limited to verified assessment clients linked to Cognito. The shared referral-portal recovery flow is not changed.
+- A first-time client who has not completed payment and account setup has no verified assessment account, so the backend does not create or email a reset code.
+- Repeat clients retain one reusable account across assessment years. If a repeat client has an unpaid new-year assessment but already has a verified Savians account from an earlier year, password recovery remains available for that existing account.
+- The frontend explains the payment/account prerequisite and links to assessment recovery, while the API deliberately keeps the same response for known and unknown emails to prevent account enumeration.
 
 ### New paid account verification
 
@@ -59,11 +62,17 @@ Existing setup endpoints remain in place:
 - The shared Cognito user-pool email configuration remains unchanged, so the referral portal is not affected.
 - The staging and production environment templates use `contactus@savians.com` for `EMAIL_FROM` and `EMAIL_REPLY_TO`.
 
+### Resume-link delivery
+
+- Each requested resume-link email receives a new Resend message and a unique short reference in its subject.
+- The unique subject prevents Gmail from visually collapsing multiple user-requested links into one conversation.
+- The newest resume URL remains the authoritative way to continue the current annual assessment.
+
 ## Verification completed locally
 
 - Backend TypeScript typecheck: passed.
 - Backend ESLint: passed.
-- Backend test suite: 48 tests passed, including Resend reset delivery, account-existence concealment, one-time consumption, and invalid/expired-code rejection.
+- Backend test suite: 50 tests passed, including Resend reset delivery, account-existence concealment, one-time consumption, invalid/expired-code rejection, QuickBooks online-payment preparation, and unique resume-email subjects.
 - Frontend ESLint: passed.
 - Frontend test suite: 8 tests passed, including backend reset request, reset confirmation, and invalid-code handling.
 - Next.js production build: passed.

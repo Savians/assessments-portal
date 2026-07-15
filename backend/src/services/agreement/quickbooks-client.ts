@@ -14,6 +14,15 @@ const invoiceLookupSchema = z.object({
     CurrencyRef: z.object({ value: z.string() }).optional()
   })
 });
+const invoicePaymentSettingsSchema = z.object({
+  Invoice: z.object({
+    Id: z.string(),
+    SyncToken: z.string(),
+    AllowOnlinePayment: z.boolean().optional(),
+    AllowOnlineCreditCardPayment: z.boolean().optional(),
+    AllowOnlineACHPayment: z.boolean().optional()
+  })
+});
 
 export interface QuickBooksCustomerInput { displayName: string; email: string; phone: string; requestId: string; }
 export interface QuickBooksInvoiceInput { customerId: string; email: string; amount: number; requestId: string; description: string; }
@@ -119,6 +128,9 @@ export class IntuitQuickBooksGateway implements QuickBooksGateway {
       method: "POST", headers: { "request-id": input.requestId },
       body: JSON.stringify({
         CustomerRef: { value: input.customerId }, BillEmail: { Address: input.email },
+        AllowOnlinePayment: true,
+        AllowOnlineCreditCardPayment: true,
+        AllowOnlineACHPayment: true,
         Line: [{ Amount: input.amount, DetailType: "SalesItemLineDetail", Description: input.description,
           SalesItemLineDetail: { ItemRef: { value: this.config.QB_SERVICE_ITEM_ID_TAX_ASSESSMENT }, Qty: 1, UnitPrice: input.amount } }]
       })
@@ -127,6 +139,29 @@ export class IntuitQuickBooksGateway implements QuickBooksGateway {
   }
 
   async sendInvoice(invoiceId: string, email: string, requestId: string): Promise<void> {
+    const current = invoicePaymentSettingsSchema.parse(
+      await this.request(`invoice/${encodeURIComponent(invoiceId)}`, { method: "GET" })
+    ).Invoice;
+    const onlinePaymentEnabled =
+      current.AllowOnlinePayment === true &&
+      current.AllowOnlineCreditCardPayment === true &&
+      current.AllowOnlineACHPayment === true;
+
+    if (!onlinePaymentEnabled) {
+      await this.request("invoice", {
+        method: "POST",
+        headers: { "request-id": `${requestId.slice(0, 28)}-enable-online-payment` },
+        body: JSON.stringify({
+          sparse: true,
+          Id: current.Id,
+          SyncToken: current.SyncToken,
+          AllowOnlinePayment: true,
+          AllowOnlineCreditCardPayment: true,
+          AllowOnlineACHPayment: true
+        })
+      });
+    }
+
     await this.request(`invoice/${encodeURIComponent(invoiceId)}/send?sendTo=${encodeURIComponent(email)}`, { method: "POST", headers: { "request-id": requestId } });
   }
 

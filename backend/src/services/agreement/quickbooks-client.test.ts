@@ -16,6 +16,8 @@ describe("IntuitQuickBooksGateway", () => {
       .mockResolvedValueOnce(response({ access_token: "access", refresh_token: "refresh-new", expires_in: 3600 }))
       .mockResolvedValueOnce(response({ QueryResponse: { Customer: [{ Id: "customer-1" }] } }))
       .mockResolvedValueOnce(response({ Invoice: { Id: "invoice-1", DocNumber: "1001", Balance: 2997 } }))
+      .mockResolvedValueOnce(response({ Invoice: { Id: "invoice-1", SyncToken: "0", AllowOnlinePayment: false, AllowOnlineCreditCardPayment: false, AllowOnlineACHPayment: false } }))
+      .mockResolvedValueOnce(response({ Invoice: { Id: "invoice-1", SyncToken: "1", AllowOnlinePayment: true, AllowOnlineCreditCardPayment: true, AllowOnlineACHPayment: true } }))
       .mockResolvedValueOnce(response({ Invoice: { Id: "invoice-1" } }));
     vi.stubGlobal("fetch", fetchMock); const persist = vi.fn().mockResolvedValue(undefined);
     const gateway = new IntuitQuickBooksGateway(secrets, persist);
@@ -26,11 +28,40 @@ describe("IntuitQuickBooksGateway", () => {
     expect(persist).toHaveBeenCalledWith("refresh-old", "refresh-new");
     const invoiceRequest = fetchMock.mock.calls[2] as [string, RequestInit];
     expect(invoiceRequest[1].headers).toMatchObject({ "request-id": "invoice-request" });
-    expect(JSON.parse(invoiceRequest[1].body as string)).toMatchObject({ CustomerRef: { value: "customer-1" }, Line: [{ Amount: 2997, SalesItemLineDetail: { ItemRef: { value: "item-1" }, Qty: 1, UnitPrice: 2997 } }] });
-    const sendRequest = fetchMock.mock.calls[3] as [string, RequestInit];
+    expect(JSON.parse(invoiceRequest[1].body as string)).toMatchObject({
+      CustomerRef: { value: "customer-1" },
+      AllowOnlinePayment: true,
+      AllowOnlineCreditCardPayment: true,
+      AllowOnlineACHPayment: true,
+      Line: [{ Amount: 2997, SalesItemLineDetail: { ItemRef: { value: "item-1" }, Qty: 1, UnitPrice: 2997 } }]
+    });
+    const repairRequest = fetchMock.mock.calls[4] as [string, RequestInit];
+    expect(repairRequest[0]).toMatch(/\/invoice(?:\?|$)/);
+    expect(repairRequest[1].headers).toMatchObject({ "request-id": "send-request-enable-online-payment" });
+    expect(JSON.parse(repairRequest[1].body as string)).toMatchObject({
+      sparse: true,
+      Id: "invoice-1",
+      SyncToken: "0",
+      AllowOnlinePayment: true,
+      AllowOnlineCreditCardPayment: true,
+      AllowOnlineACHPayment: true
+    });
+    const sendRequest = fetchMock.mock.calls[5] as [string, RequestInit];
     expect(sendRequest[0]).toContain("invoice/invoice-1/send?sendTo=jane%40example.com");
     expect(sendRequest[1].headers).toMatchObject({ "request-id": "send-request" });
     expect(sendRequest[1].body).toBeUndefined();
+  });
+
+  it("does not rewrite an invoice when all online payment options are already enabled", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ access_token: "access", refresh_token: "refresh-new", expires_in: 3600 }))
+      .mockResolvedValueOnce(response({ Invoice: { Id: "invoice-1", SyncToken: "2", AllowOnlinePayment: true, AllowOnlineCreditCardPayment: true, AllowOnlineACHPayment: true } }))
+      .mockResolvedValueOnce(response({ Invoice: { Id: "invoice-1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = new IntuitQuickBooksGateway(secrets, async () => undefined);
+    await gateway.sendInvoice("invoice-1", "jane@example.com", "send-request");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect((fetchMock.mock.calls[2] as [string, RequestInit])[0]).toContain("invoice/invoice-1/send?sendTo=jane%40example.com");
   });
 
   it("creates a customer only when the normalized email is absent", async () => {

@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { randomUUID } from "node:crypto";
 import type { ApplicationSecrets } from "../../shared/application-secrets";
 import type { ResumeAgreementNotifier } from "./start-assessment";
 
@@ -10,6 +11,9 @@ const escapeHtml = (value: string): string =>
         character
       ] ?? character
   );
+
+export const buildResumeEmailSubject = (assessmentYear: number, requestReference: string): string =>
+  `Continue your ${assessmentYear} Savians Tax Assessment - link ${requestReference}`;
 
 export class ResendResumeAgreementNotifier implements ResumeAgreementNotifier {
   constructor(private readonly secrets: ApplicationSecrets) {}
@@ -27,11 +31,14 @@ export class ResendResumeAgreementNotifier implements ResumeAgreementNotifier {
     const resend = new Resend(this.secrets.RESEND_API_KEY);
     const safeName = escapeHtml(input.recipientName);
     const safeUrl = escapeHtml(input.resumeUrl);
+    // Gmail groups identical subjects even though Resend supplies a new Message-ID.
+    // A per-request reference keeps every requested resume link as a new inbox item.
+    const requestReference = randomUUID().slice(0, 8).toUpperCase();
     const result = await resend.emails.send({
       from: "Savians Tax Advisors <" + this.secrets.EMAIL_FROM + ">",
       to: [input.recipientEmail],
       replyTo: this.secrets.EMAIL_REPLY_TO,
-      subject: "Continue your " + input.assessmentYear + " Savians Tax Assessment",
+      subject: buildResumeEmailSubject(input.assessmentYear, requestReference),
       text:
         "Hi " +
         input.recipientName +

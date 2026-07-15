@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, KeyRound, MailCheck, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, KeyRound, MailCheck, RotateCcw } from "lucide-react";
 import { confirmPortalPasswordReset, requestPortalPasswordReset } from "@/services/portal-auth";
 import { Button, Card, ErrorAlert, Input, LoadingOverlay, StatusBadge } from "@/components/ui";
 
@@ -46,7 +46,7 @@ export function ForgotPasswordClient({ initialEmail = "", returnTo = "/portal/da
       await requestPortalPasswordReset(email);
       setPhase("CODE");
       setCooldown(60);
-      setMessage("If a verified Savians account exists for that email, a single-use reset code has been sent. Check your inbox and spam folder.");
+      setMessage("If a paid and verified Savians account exists for that email, a single-use reset code has been sent. If payment and account setup are not complete, no reset code is sent.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "We could not send a password reset code.");
     } finally {
@@ -96,6 +96,19 @@ export function ForgotPasswordClient({ initialEmail = "", returnTo = "/portal/da
               ? "Enter the latest eight-digit code from your email and choose a new password. Requesting another code invalidates the previous one."
               : "Your old password no longer works. Continue to the dashboard and sign in with your new password."}
         </p>
+
+        {phase !== "COMPLETE" ? (
+          <div className="mt-5 flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+            <AlertTriangle aria-hidden className="mt-0.5 shrink-0" size={18} />
+            <div>
+              <p className="font-semibold">Password recovery is only available after payment and account setup.</p>
+              <p className="mt-1">If you have not paid your invoice or created a password yet, first complete or resume your assessment. For security, this page does not reveal whether an email address is registered.</p>
+              <Link className="mt-2 inline-flex font-semibold text-navy-700 underline underline-offset-4" href="/assessment/recover">
+                Resume assessment or finish account setup
+              </Link>
+            </div>
+          </div>
+        ) : null}
 
         {error ? <div className="mt-5"><ErrorAlert>{error}</ErrorAlert></div> : null}
         {message ? (

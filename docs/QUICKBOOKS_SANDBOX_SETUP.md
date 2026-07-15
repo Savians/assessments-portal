@@ -64,3 +64,11 @@ Sandbox and production webhooks/verifier tokens are separate.
 
 Setup is complete when the backend can refresh a token, fetch CompanyInfo for the expected realm, query the service item, create and re-fetch one USD 2,997 test invoice, and validate a signed sandbox webhook.
 
+## Hosted invoice payment links
+
+- Assessment invoices are created with QuickBooks e-invoicing, credit-card payment, and ACH payment enabled.
+- Before every API resend, the backend reads the current invoice and sparsely enables those same settings when an older invoice was created without them. QuickBooks then generates and owns the **View and Pay** URL in its invoice email.
+- Existing open invoices can therefore be repaired by using **Resend invoice email** from the assessment payment-status page after this backend version is deployed.
+- The Savians application does not construct, cache, or rewrite Intuit payment URLs.
+- A functioning hosted payment page still requires the connected QuickBooks company to support online payments. Intuit's Payments sandbox uses emulated payment processing; production requires a production QuickBooks company and the applicable QuickBooks Payments/merchant setup.
+- If Intuit rejects the payment-enablement update, the resend operation fails visibly with the QuickBooks validation message instead of sending another known-broken invoice link.
