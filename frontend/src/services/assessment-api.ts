@@ -197,6 +197,38 @@ export async function confirmAccountSetup(input: { inviteToken: string; confirma
   return body as { status: "ACCOUNT_CREATED"; nextUrl: string };
 }
 
+export async function requestAssessmentPasswordReset(email: string): Promise<{ ok: true; retryAfterSeconds: number }> {
+  const response = await fetch(`${apiBaseUrl()}/api/assessment/account/password-reset/request`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: email.trim().toLowerCase() }),
+    cache: "no-store"
+  });
+  const body = (await response.json()) as { ok: true; retryAfterSeconds: number } | ApiErrorBody;
+  if (!response.ok) {
+    throw new AssessmentApiError((body as ApiErrorBody).message ?? "We could not send a password reset code.");
+  }
+  return body as { ok: true; retryAfterSeconds: number };
+}
+
+export async function confirmAssessmentPasswordReset(input: {
+  email: string;
+  confirmationCode: string;
+  newPassword: string;
+}): Promise<{ ok: true }> {
+  const response = await fetch(`${apiBaseUrl()}/api/assessment/account/password-reset/confirm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...input, email: input.email.trim().toLowerCase() }),
+    cache: "no-store"
+  });
+  const body = (await response.json()) as { ok: true } | ApiErrorBody;
+  if (!response.ok) {
+    throw new AssessmentApiError((body as ApiErrorBody).message ?? "We could not reset your password.", (body as ApiErrorBody).issues);
+  }
+  return body as { ok: true };
+}
+
 export async function claimExistingAccount(input: { inviteToken: string; accessToken: string }): Promise<{ status: "ACCOUNT_CREATED"; nextUrl: string }> {
   const response = await fetch(`${apiBaseUrl()}/api/assessment/account/existing/claim`, {
     method: "POST",

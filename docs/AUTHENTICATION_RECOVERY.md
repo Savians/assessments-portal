@@ -1,22 +1,26 @@
 # Authentication and Account Recovery
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 ## Implemented flows
 
 ### Forgot password
 
-- Entry point: `/assessment/forgot-password`
-- Discoverable from the client dashboard sign-in, profile sign-in, returning-account setup, and completed setup states.
-- AWS Cognito creates and emails the time-limited, single-use reset code.
-- The public request response does not reveal whether an email is registered.
-- The client must enter the latest reset code, a policy-compliant new password, and a matching confirmation.
-- Cognito enforces code expiry, invalid-code handling, password policy, abuse limits, and old-password invalidation.
-- Reset-code resend has a 60-second UI cooldown and uses Cognito's server-side throttling.
+- Entry point: `/assessment/forgot-password`.
+- Discoverable from client-dashboard sign-in, profile sign-in, returning-account setup, and completed setup states.
+- The assessment backend generates an eight-digit, cryptographically random reset code.
+- Resend delivers the code from `Savians Tax Advisors <contactus@savians.com>`; Amazon SES and Cognito's `no-reply@verificationemail.com` sender are not used for this flow.
+- Only a SHA-256 hash bound to the assessment session and normalized email is stored. The plaintext code is never persisted or logged.
+- The public request response is identical for known and unknown emails, preventing account enumeration through response content.
+- Codes expire after 15 minutes. Requesting a new code revokes earlier unused reset codes.
+- Reset-code resend has a 60-second backend-enforced cooldown plus a matching UI countdown.
+- A valid code is atomically consumed before the auth Lambda changes the permanent Cognito password, preventing replay.
+- Password policy is validated by the backend before Cognito receives the new password.
+- Recovery is limited to verified assessment clients linked to Cognito. The shared referral-portal recovery flow is not changed.
 
 ### New paid account verification
 
-- Savians sends the account verification code through Resend.
+- Savians sends the account verification code through Resend from the branded sender.
 - Codes expire after 15 minutes.
 - Requesting another code revokes all older unused setup codes.
 - Verification-code resend has a 60-second backend-enforced cooldown plus a matching UI countdown.
@@ -34,8 +38,10 @@ Last updated: 2026-07-15
 
 ## Backend endpoints
 
-- `POST /api/assessment/account/verification/resend` — public, invite-token protected, rate-limited setup-code resend.
-- `POST /api/assessment/account/existing/claim` — Cognito JWT protected, links a paid annual assessment to an existing verified account.
+- `POST /api/assessment/account/verification/resend`: public, invite-token protected, rate-limited setup-code resend.
+- `POST /api/assessment/account/password-reset/request`: public, enumeration-resistant, rate-limited Resend reset-code request.
+- `POST /api/assessment/account/password-reset/confirm`: public, consumes a valid reset code and changes the Cognito password.
+- `POST /api/assessment/account/existing/claim`: Cognito JWT protected, links a paid annual assessment to an existing verified account.
 
 Existing setup endpoints remain in place:
 
@@ -47,37 +53,48 @@ Existing setup endpoints remain in place:
 
 - No database migration or schema change is required.
 - Existing `assessment_recovery_tokens`, `assessment_account_invites`, client, session, status-history, and audit tables are reused.
+- Password-reset records use verification type `PASSWORD_RESET_EMAIL`.
 - The Cognito app client remains secretless and uses SRP/refresh-token authentication.
 - The auth Lambda retains the existing least-privilege Cognito administrative permissions.
+- The shared Cognito user-pool email configuration remains unchanged, so the referral portal is not affected.
+- The staging and production environment templates use `contactus@savians.com` for `EMAIL_FROM` and `EMAIL_REPLY_TO`.
 
 ## Verification completed locally
 
-- Backend TypeScript typecheck
-- Backend ESLint
-- Backend test suite: 44 passing tests
-- Frontend TypeScript typecheck
-- Frontend ESLint
-- Frontend test suite: 10 passing tests, including password reset delivery, privacy concealment, throttling, reset success, and invalid code handling
-- Next.js production build
-- CDK synthesis
+- Backend TypeScript typecheck: passed.
+- Backend ESLint: passed.
+- Backend test suite: 48 tests passed, including Resend reset delivery, account-existence concealment, one-time consumption, and invalid/expired-code rejection.
+- Frontend ESLint: passed.
+- Frontend test suite: 8 tests passed, including backend reset request, reset confirmation, and invalid-code handling.
+- Next.js production build: passed.
+- CDK synthesis: passed after retrying a transient Windows generated-bundle file lock.
 
-## Staging deployment record
+## Deployment history
 
-Deployed on 2026-07-15 to `SaviansAssessment-staging`:
+### Native Cognito recovery deployment - 2026-07-15
 
-- CDK diff contained only the auth Lambda update, two API Gateway routes, integrations, and Lambda invocation permissions.
-- CloudFormation deployment completed successfully.
-- Cognito verified-email account recovery, concealed user-existence errors, and token revocation were confirmed enabled.
-- Cognito accepted a controlled password-reset request for the approved verified test account and reported email delivery.
-- The public resend route reached the deployed Lambda and returned the expected not-found response for a deliberately invalid invite.
-- The existing-account claim route returned the expected unauthorized response without a JWT.
-- Git commit `5c989d5` was pushed to `main`.
-- Amplify job `6` completed BUILD, DEPLOY, and VERIFY successfully.
-- `https://assessments.savians.com/assessment/forgot-password` returned HTTP 200 with the deployed recovery content.
+- The first recovery implementation used Cognito's browser-side `ForgotPassword` and `ConfirmForgotPassword` operations.
+- This caused Cognito to deliver messages from `no-reply@verificationemail.com` because the shared user pool uses `COGNITO_DEFAULT` email delivery.
+- Git commit `5c989d5` was pushed to `main`, and Amplify job `6` completed successfully.
 
-Final manual acceptance checks use the code delivered to the controlled inbox:
+### Resend recovery replacement - 2026-07-16
 
-1. Submit the latest code and a policy-compliant new password.
-2. Sign in with the new password.
-3. Confirm the previous password is rejected.
-4. During a paid test-client setup, request a replacement verification code and confirm only the newest code is accepted.
+- Replaces only the assessment portal's forgot-password delivery with the assessment backend and Resend.
+- Does not require SES production access.
+- Does not install a pool-wide Cognito custom sender and therefore does not alter referral-portal email behavior.
+- CDK diff contained only the auth Lambda code update, two API Gateway routes, their integrations, and Lambda invocation permissions.
+- CloudFormation deployment of `SaviansAssessment-staging` completed successfully.
+- The deployed invalid-code check returned HTTP 400 with `INVALID_PASSWORD_RESET_CODE` as expected.
+- A controlled reset request was submitted for `thearpit2005@gmail.com`; inbox sender/content verification remains the final manual acceptance check.
+- The deployed secret was verified without exposing its value: email delivery is enabled, the Resend key is present, and both sender and reply-to are `contactus@savians.com`.
+
+## Manual acceptance checklist
+
+1. Open `https://assessments.savians.com/assessment/forgot-password`.
+2. Request a reset for the approved controlled test account.
+3. Confirm the email shows sender `Savians Tax Advisors <contactus@savians.com>`.
+4. Confirm the message contains an eight-digit code and no sensitive account details.
+5. Request a replacement after the cooldown and confirm only the newest code works.
+6. Submit the newest code with a policy-compliant password.
+7. Sign in with the new password and confirm the previous password is rejected.
+8. Submit an unknown email and confirm the public response is indistinguishable from a known account.

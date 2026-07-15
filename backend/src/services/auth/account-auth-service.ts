@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { z } from "zod";
+import { log } from "../../shared/logger";
 
 export type AuthSessionStatus =
   | "AGREEMENT_PENDING"
@@ -41,6 +42,13 @@ export interface AccountInvite {
   session: PaidSession;
 }
 
+export interface PasswordResetSubject {
+  sessionId: string;
+  normalizedEmail: string;
+  firstName: string;
+  assessmentYear: number;
+}
+
 export interface AccountAuthRepository {
   findSessionByStatusTokenHash(tokenHash: string): Promise<PaidSession | null>;
   createAccountInvite(input: { sessionId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
@@ -62,16 +70,20 @@ export interface AccountAuthRepository {
   findLatestAccountVerificationCodeCreatedAt(sessionId: string, verificationType: string): Promise<Date | null>;
   hasActiveAccountVerificationCode(input: { sessionId: string; tokenHash: string; verificationType: string; now: Date }): Promise<boolean>;
   markAccountVerificationCodeUsed(input: { sessionId: string; tokenHash: string; verificationType: string; usedAt: Date }): Promise<void>;
+  findPasswordResetSubjectByEmail(normalizedEmail: string): Promise<PasswordResetSubject | null>;
+  consumeRecoveryCode(input: { sessionId: string; tokenHash: string; verificationType: string; now: Date }): Promise<boolean>;
 }
 
 export interface AccountInviteNotifier {
   send(input: { email: string; firstName: string; setupUrl: string; assessmentYear: number }): Promise<void>;
   sendVerificationCode(input: { email: string; firstName: string; code: string; assessmentYear: number }): Promise<void>;
+  sendPasswordResetCode(input: { email: string; firstName: string; code: string }): Promise<void>;
 }
 
 export interface CognitoAccountGateway {
   prepareAccount(input: { email: string; password: string; fullName: string }): Promise<{ status: "PASSWORD_SET" | "EXISTING_CONFIRMED" }>;
   confirmSignUp(input: { email: string; confirmationCode: string }): Promise<{ userSub: string; emailVerified: boolean }>;
+  setPermanentPassword(input: { email: string; password: string }): Promise<void>;
 }
 
 export class AccountAuthError extends Error {
@@ -95,6 +107,16 @@ export const confirmSchema = z.object({
   confirmationCode: z.string().trim().min(4).max(12)
 });
 export const existingAccountClaimSchema = z.object({ inviteToken: z.string().min(32).max(256) });
+export const passwordResetRequestSchema = z.object({ email: z.string().trim().email().max(320) });
+export const passwordResetConfirmSchema = z.object({
+  email: z.string().trim().email().max(320),
+  confirmationCode: z.string().trim().regex(/^\d{8}$/, "Enter the eight-digit reset code"),
+  newPassword: z.string().min(12).max(256)
+    .regex(/[a-z]/, "Password must include a lowercase letter")
+    .regex(/[A-Z]/, "Password must include an uppercase letter")
+    .regex(/[0-9]/, "Password must include a number")
+    .regex(/[^A-Za-z0-9]/, "Password must include a special character")
+});
 export const portalClaimsSchema = z.object({
   sub: z.string().min(1),
   email: z.string().email(),
@@ -105,8 +127,12 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 const generateToken = () => randomBytes(32).toString("base64url");
 const generateVerificationCode = () => randomInt(100000, 1000000).toString();
 const verificationType = "ACCOUNT_SETUP_EMAIL";
+const passwordResetVerificationType = "PASSWORD_RESET_EMAIL";
+const generatePasswordResetCode = () => randomInt(10_000_000, 100_000_000).toString();
 const verificationHash = (inviteId: string, code: string) =>
   hash(`account-setup-email:${inviteId}:${code.trim()}`);
+const passwordResetHash = (sessionId: string, email: string, code: string) =>
+  hash(`assessment-password-reset:${sessionId}:${normalizeEmail(email)}:${code.trim()}`);
 const fullName = (session: PaidSession) => [session.firstName, session.middleName, session.lastName].filter(Boolean).join(" ");
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 const completedAccountStatuses: AuthSessionStatus[] = [
@@ -277,6 +303,69 @@ export class AccountAuthService {
       verificationType
     });
     return { status: "ACCOUNT_CREATED", nextUrl: "/portal/dashboard" };
+  }
+
+  async requestPasswordReset(raw: unknown): Promise<{ ok: true; retryAfterSeconds: number }> {
+    const { email } = passwordResetRequestSchema.parse(raw);
+    const subject = await this.repository.findPasswordResetSubjectByEmail(normalizeEmail(email));
+
+    // Always return the same response so this public endpoint cannot be used to enumerate accounts.
+    if (!subject) return { ok: true, retryAfterSeconds: 60 };
+
+    const now = this.now();
+    const latest = await this.repository.findLatestAccountVerificationCodeCreatedAt(
+      subject.sessionId,
+      passwordResetVerificationType
+    );
+    if (latest && latest.getTime() + 60_000 > now.getTime()) {
+      return { ok: true, retryAfterSeconds: 60 };
+    }
+
+    const code = generatePasswordResetCode();
+    await this.repository.revokeAccountVerificationCodes(subject.sessionId, passwordResetVerificationType, now);
+    await this.repository.createAccountVerificationCode({
+      sessionId: subject.sessionId,
+      tokenHash: passwordResetHash(subject.sessionId, subject.normalizedEmail, code),
+      verificationType: passwordResetVerificationType,
+      expiresAt: new Date(now.getTime() + 15 * 60 * 1000)
+    });
+
+    try {
+      await this.notifier.sendPasswordResetCode({
+        email: subject.normalizedEmail,
+        firstName: subject.firstName,
+        code
+      });
+    } catch (error) {
+      // Keep the response indistinguishable from an unknown account. Provider failures are
+      // logged without recipient details and remain indistinguishable to the public caller.
+      log("error", "password reset email delivery failed", {
+        error: error instanceof Error ? error.message : "Unknown Resend delivery error"
+      });
+    }
+    return { ok: true, retryAfterSeconds: 60 };
+  }
+
+  async confirmPasswordReset(raw: unknown): Promise<{ ok: true }> {
+    const input = passwordResetConfirmSchema.parse(raw);
+    const normalizedEmail = normalizeEmail(input.email);
+    const subject = await this.repository.findPasswordResetSubjectByEmail(normalizedEmail);
+    if (!subject) {
+      throw new AccountAuthError("INVALID_PASSWORD_RESET_CODE", "The reset code is invalid or expired.", 400);
+    }
+
+    const consumed = await this.repository.consumeRecoveryCode({
+      sessionId: subject.sessionId,
+      tokenHash: passwordResetHash(subject.sessionId, normalizedEmail, input.confirmationCode),
+      verificationType: passwordResetVerificationType,
+      now: this.now()
+    });
+    if (!consumed) {
+      throw new AccountAuthError("INVALID_PASSWORD_RESET_CODE", "The reset code is invalid or expired.", 400);
+    }
+
+    await this.cognito.setPermanentPassword({ email: normalizedEmail, password: input.newPassword });
+    return { ok: true };
   }
 
   async claimExistingAccount(raw: unknown, rawClaims: unknown): Promise<{ status: "ACCOUNT_CREATED"; nextUrl: string }> {

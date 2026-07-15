@@ -33,6 +33,8 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
     if (method === "POST" && path.endsWith("/account/setup")) return json(200, await service.startSetup(body));
     if (method === "POST" && path.endsWith("/account/verification/resend")) return json(200, await service.resendVerificationCode(body));
     if (method === "POST" && path.endsWith("/account/confirm")) return json(200, await service.confirm(body));
+    if (method === "POST" && path.endsWith("/account/password-reset/request")) return json(200, await service.requestPasswordReset(body));
+    if (method === "POST" && path.endsWith("/account/password-reset/confirm")) return json(200, await service.confirmPasswordReset(body));
     if (method === "POST" && path.endsWith("/account/existing/claim")) {
       const requestContext = event.requestContext as typeof event.requestContext & { authorizer?: { jwt?: { claims?: unknown } } };
       return json(200, await service.claimExistingAccount(body, requestContext.authorizer?.jwt?.claims));

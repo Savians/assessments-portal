@@ -93,7 +93,7 @@ export function ForgotPasswordClient({ initialEmail = "", returnTo = "/portal/da
           {phase === "EMAIL"
             ? "Enter the email used for your Savians assessment account. We’ll send a time-limited, single-use reset code."
             : phase === "CODE"
-              ? "Enter the latest code from your email and choose a new password. Requesting another code invalidates the previous one."
+              ? "Enter the latest eight-digit code from your email and choose a new password. Requesting another code invalidates the previous one."
               : "Your old password no longer works. Continue to the dashboard and sign in with your new password."}
         </p>
 
@@ -118,7 +118,7 @@ export function ForgotPasswordClient({ initialEmail = "", returnTo = "/portal/da
         {phase === "CODE" ? (
           <form className="mt-7 grid gap-5" onSubmit={resetPassword}>
             <div className="rounded-xl bg-navy-50 p-4 text-sm text-navy-800">
-              Resetting the password for <strong>{email}</strong>. Codes are managed by AWS Cognito and expire automatically.
+              Resetting the password for <strong>{email}</strong>. The single-use code expires after 15 minutes.
             </div>
             <Input label="Reset code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 12))} required />
             <Input label="New password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} error={password ? passwordValidation ?? undefined : undefined} required />
@@ -126,7 +126,7 @@ export function ForgotPasswordClient({ initialEmail = "", returnTo = "/portal/da
             <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
               Use 12 or more characters with uppercase, lowercase, a number, and a special character. Do not reuse a password from another website.
             </p>
-            <Button type="submit" disabled={loading || code.length < 4 || Boolean(passwordValidation) || password !== confirmPassword}>
+            <Button type="submit" disabled={loading || code.length !== 8 || Boolean(passwordValidation) || password !== confirmPassword}>
               <KeyRound aria-hidden className="mr-2" size={17} />
               Reset password
             </Button>

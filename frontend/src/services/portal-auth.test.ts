@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const cognito = vi.hoisted(() => ({
-  forgot: vi.fn<(callbacks: Record<string, (value?: unknown) => void>) => void>(),
-  confirm: vi.fn<(code: string, password: string, callbacks: Record<string, (value?: unknown) => void>) => void>(),
   authenticate: vi.fn<(details: unknown, callbacks: Record<string, (value?: unknown) => void>) => void>()
 }));
 
@@ -12,8 +10,6 @@ vi.mock("amazon-cognito-identity-js", () => ({
     getCurrentUser() { return null; }
   },
   CognitoUser: class CognitoUser {
-    forgotPassword(callbacks: Record<string, (value?: unknown) => void>) { cognito.forgot(callbacks); }
-    confirmPassword(code: string, password: string, callbacks: Record<string, (value?: unknown) => void>) { cognito.confirm(code, password, callbacks); }
     authenticateUser(details: unknown, callbacks: Record<string, (value?: unknown) => void>) { cognito.authenticate(details, callbacks); }
   }
 }));
@@ -24,40 +20,36 @@ describe("portal password recovery", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID = "us-east-1_test";
     process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID = "client-id";
-    cognito.forgot.mockReset();
-    cognito.confirm.mockReset();
+    process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.example.com";
+    vi.unstubAllGlobals();
   });
 
-  it("resolves after Cognito sends the single-use reset code", async () => {
-    cognito.forgot.mockImplementation((callbacks) => callbacks.inputVerificationCode?.({}));
+  it("requests a Resend-delivered single-use reset code from the assessment backend", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, retryAfterSeconds: 60 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
     await expect(requestPortalPasswordReset("Client@Example.com")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.com/api/assessment/account/password-reset/request",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ email: "client@example.com" }) })
+    );
   });
 
-  it("conceals unknown accounts to prevent email enumeration", async () => {
-    cognito.forgot.mockImplementation((callbacks) => callbacks.onFailure?.({ name: "UserNotFoundException" }));
-    await expect(requestPortalPasswordReset("missing@example.com")).resolves.toBeUndefined();
-  });
-
-  it("surfaces Cognito abuse-rate limits with a safe message", async () => {
-    cognito.forgot.mockImplementation((callbacks) => callbacks.onFailure?.({ name: "LimitExceededException" }));
-    await expect(requestPortalPasswordReset("client@example.com")).rejects.toThrow("Too many attempts");
-  });
-
-  it("confirms a reset using the code and new password", async () => {
-    cognito.confirm.mockImplementation((...args) => args[2].onSuccess?.());
+  it("confirms a reset through the assessment backend", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
     await expect(confirmPortalPasswordReset({
       email: "client@example.com",
-      confirmationCode: "123456",
+      confirmationCode: "12345678",
       newPassword: "SecurePassword123!"
     })).resolves.toBeUndefined();
   });
 
-  it("returns a clear error for an incorrect reset code", async () => {
-    cognito.confirm.mockImplementation((...args) => args[2].onFailure?.({ name: "CodeMismatchException" }));
+  it("returns a clear backend error for an incorrect reset code", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: "The reset code is invalid or expired." }), { status: 400 })));
     await expect(confirmPortalPasswordReset({
       email: "client@example.com",
-      confirmationCode: "000000",
+      confirmationCode: "00000000",
       newPassword: "SecurePassword123!"
-    })).rejects.toThrow("verification code is incorrect");
+    })).rejects.toThrow("invalid or expired");
   });
 });

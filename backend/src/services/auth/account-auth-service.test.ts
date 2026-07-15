@@ -14,7 +14,7 @@ class Repo implements AccountAuthRepository {
     statusTokenExpiresAt: new Date("2026-08-01T00:00:00Z")
   };
   invite?: AccountInvite;
-  emails = 0; linked = 0; revoked = 0; invited = 0; verificationCodes = 0; verificationUsed = 0; verificationActive = true;
+  emails = 0; linked = 0; revoked = 0; invited = 0; verificationCodes = 0; verificationUsed = 0; verificationActive = true; passwordResetSubjectExists = true;
   latestVerificationCreatedAt: Date | null = null;
   linkedInput?: Parameters<AccountAuthRepository["linkConfirmedAccount"]>[0];
   async findSessionByStatusTokenHash() { return this.session; }
@@ -31,18 +31,26 @@ class Repo implements AccountAuthRepository {
   async findLatestAccountVerificationCodeCreatedAt() { return this.latestVerificationCreatedAt; }
   async hasActiveAccountVerificationCode() { return this.verificationCodes > 0 && this.verificationActive; }
   async markAccountVerificationCodeUsed() { this.verificationUsed++; }
+  async findPasswordResetSubjectByEmail() {
+    return this.passwordResetSubjectExists
+      ? { sessionId: this.session.id, normalizedEmail: this.session.normalizedEmail, firstName: this.session.firstName, assessmentYear: this.session.assessmentYear }
+      : null;
+  }
+  async consumeRecoveryCode() { if (this.verificationActive) this.verificationUsed++; return this.verificationActive; }
 }
 
 class Cognito implements CognitoAccountGateway {
-  signups = 0; confirms = 0; verified = true; accountStatus: "PASSWORD_SET" | "EXISTING_CONFIRMED" = "PASSWORD_SET";
+  signups = 0; confirms = 0; passwordSets = 0; verified = true; accountStatus: "PASSWORD_SET" | "EXISTING_CONFIRMED" = "PASSWORD_SET";
   async prepareAccount() { this.signups++; return { status: this.accountStatus }; }
   async confirmSignUp() { this.confirms++; return { userSub: "sub-1", emailVerified: this.verified }; }
+  async setPermanentPassword() { this.passwordSets++; }
 }
 
 class Notifier implements AccountInviteNotifier {
-  sends = 0; codes = 0;
+  sends = 0; codes = 0; passwordResetCodes = 0;
   async send() { this.sends++; }
   async sendVerificationCode() { this.codes++; }
+  async sendPasswordResetCode() { this.passwordResetCodes++; }
 }
 
 const statusToken = "a".repeat(43);
@@ -159,5 +167,43 @@ describe("AccountAuthService", () => {
     await expect(service.confirm({ inviteToken: "invite-token".repeat(4), confirmationCode: "000000" })).rejects.toMatchObject({ code: "INVALID_VERIFICATION_CODE" });
     expect(cognito.confirms).toBe(0);
     expect(repo.linked).toBe(0);
+  });
+
+  it("sends an assessment-scoped password reset code through the notifier", async () => {
+    const { repo, notifier, service } = build();
+    await expect(service.requestPasswordReset({ email: "Client@Example.com" }))
+      .resolves.toEqual({ ok: true, retryAfterSeconds: 60 });
+    expect(repo.verificationCodes).toBe(1);
+    expect(notifier.passwordResetCodes).toBe(1);
+  });
+
+  it("conceals unknown password reset accounts", async () => {
+    const { repo, notifier, service } = build();
+    repo.passwordResetSubjectExists = false;
+    await expect(service.requestPasswordReset({ email: "missing@example.com" }))
+      .resolves.toEqual({ ok: true, retryAfterSeconds: 60 });
+    expect(repo.verificationCodes).toBe(0);
+    expect(notifier.passwordResetCodes).toBe(0);
+  });
+
+  it("consumes a valid password reset code before changing the Cognito password", async () => {
+    const { cognito, service } = build();
+    await expect(service.confirmPasswordReset({
+      email: "client@example.com",
+      confirmationCode: "12345678",
+      newPassword: "SecurePassword123!"
+    })).resolves.toEqual({ ok: true });
+    expect(cognito.passwordSets).toBe(1);
+  });
+
+  it("rejects invalid or expired password reset codes", async () => {
+    const { repo, cognito, service } = build();
+    repo.verificationActive = false;
+    await expect(service.confirmPasswordReset({
+      email: "client@example.com",
+      confirmationCode: "12345678",
+      newPassword: "SecurePassword123!"
+    })).rejects.toMatchObject({ code: "INVALID_PASSWORD_RESET_CODE", statusCode: 400 });
+    expect(cognito.passwordSets).toBe(0);
   });
 });

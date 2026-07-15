@@ -1,5 +1,5 @@
 import { AssessmentStatus, DeliveryStatus, type Prisma, type PrismaClient } from "@prisma/client";
-import type { AccountAuthRepository, AccountInvite, PaidSession } from "./account-auth-service";
+import type { AccountAuthRepository, AccountInvite, PaidSession, PasswordResetSubject } from "./account-auth-service";
 
 const toPaidSession = (session: {
   id: string;
@@ -208,5 +208,52 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
       },
       data: { usedAt: input.usedAt }
     });
+  }
+
+  async findPasswordResetSubjectByEmail(normalizedEmail: string): Promise<PasswordResetSubject | null> {
+    const client = await this.prisma.assessmentClient.findFirst({
+      where: {
+        normalizedEmail,
+        deletedAt: null,
+        cognitoUserId: { not: null },
+        emailVerifiedAt: { not: null }
+      },
+      select: {
+        normalizedEmail: true,
+        sessions: {
+          orderBy: [{ assessmentYear: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: { id: true, firstName: true, assessmentYear: true }
+        }
+      }
+    });
+    const session = client?.sessions[0];
+    return client && session
+      ? {
+          sessionId: session.id,
+          normalizedEmail: client.normalizedEmail,
+          firstName: session.firstName,
+          assessmentYear: session.assessmentYear
+        }
+      : null;
+  }
+
+  async consumeRecoveryCode(input: {
+    sessionId: string;
+    tokenHash: string;
+    verificationType: string;
+    now: Date;
+  }): Promise<boolean> {
+    const result = await this.prisma.recoveryToken.updateMany({
+      where: {
+        sessionId: input.sessionId,
+        tokenHash: input.tokenHash,
+        verificationType: input.verificationType,
+        usedAt: null,
+        expiresAt: { gt: input.now }
+      },
+      data: { usedAt: input.now }
+    });
+    return result.count === 1;
   }
 }

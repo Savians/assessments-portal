@@ -62,6 +62,8 @@ const routes: RouteDefinition[] = [
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/setup", authenticated: false },
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/verification/resend", authenticated: false },
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/confirm", authenticated: false },
+  { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/password-reset/request", authenticated: false },
+  { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/password-reset/confirm", authenticated: false },
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/existing/claim", authenticated: true },
   { service: "portal", method: apigwv2.HttpMethod.GET, path: "/api/assessment/portal/dashboard", authenticated: true },
   { service: "portal", method: apigwv2.HttpMethod.GET, path: "/api/assessment/portal/profile", authenticated: true },

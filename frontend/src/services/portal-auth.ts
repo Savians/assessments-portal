@@ -4,6 +4,7 @@ import {
   CognitoUserPool,
   type CognitoUserSession
 } from "amazon-cognito-identity-js";
+import { confirmAssessmentPasswordReset, requestAssessmentPasswordReset } from "@/services/assessment-api";
 
 export const portalAccessTokenStorageKey = "saviansAssessmentAccessToken";
 
@@ -151,38 +152,12 @@ function portalAuthErrorMessage(error: unknown, fallback: string): string {
   }
 }
 
-const concealedPasswordResetErrors = new Set([
-  "UserNotFoundException",
-  "NotAuthorizedException",
-  "InvalidParameterException"
-]);
-
 /**
- * Requests Cognito's single-use password reset code. User-existence errors are deliberately
- * concealed so this public form cannot be used to discover registered client emails.
+ * Password recovery is assessment-scoped and delivered through Resend by the backend.
+ * The request endpoint deliberately conceals whether an account exists.
  */
 export async function requestPortalPasswordReset(email: string): Promise<void> {
-  const user = cognitoUser(email);
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const succeed = () => {
-      if (!settled) {
-        settled = true;
-        resolve();
-      }
-    };
-    user.forgotPassword({
-      onSuccess: succeed,
-      inputVerificationCode: succeed,
-      onFailure: (error) => {
-        if (concealedPasswordResetErrors.has(errorName(error))) {
-          succeed();
-          return;
-        }
-        reject(new AssessmentAuthError(portalAuthErrorMessage(error, "We could not send a password reset code. Please try again.")));
-      }
-    });
-  });
+  await requestAssessmentPasswordReset(email);
 }
 
 export async function confirmPortalPasswordReset(input: {
@@ -190,23 +165,5 @@ export async function confirmPortalPasswordReset(input: {
   confirmationCode: string;
   newPassword: string;
 }): Promise<void> {
-  const user = cognitoUser(input.email);
-  return new Promise((resolve, reject) => {
-    user.confirmPassword(input.confirmationCode.trim(), input.newPassword, {
-      onSuccess: () => resolve(),
-      onFailure: (error) => {
-        const name = errorName(error);
-        const message = name === "CodeMismatchException"
-          ? "That verification code is incorrect. Check the latest email and try again."
-          : name === "ExpiredCodeException"
-            ? "That verification code has expired. Request a new code and try again."
-            : name === "InvalidPasswordException"
-              ? "The new password does not meet the security requirements."
-              : name === "UserNotFoundException"
-                ? "That verification code is invalid or expired."
-                : portalAuthErrorMessage(error, "We could not reset your password. Please try again.");
-        reject(new AssessmentAuthError(message));
-      }
-    });
-  });
+  await confirmAssessmentPasswordReset(input);
 }

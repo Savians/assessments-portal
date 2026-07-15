@@ -120,4 +120,15 @@ export class AwsCognitoAccountGateway implements CognitoAccountGateway {
     );
     return { userSub, emailVerified };
   }
+
+  async setPermanentPassword(input: { email: string; password: string }): Promise<void> {
+    await this.client.send(
+      new AdminSetUserPasswordCommand({
+        UserPoolId: this.config.COGNITO_USER_POOL_ID,
+        Username: input.email,
+        Password: input.password,
+        Permanent: true
+      })
+    );
+  }
 }
