@@ -61,14 +61,23 @@ Existing setup endpoints remain in place:
 - Next.js production build
 - CDK synthesis
 
-## Deployment checklist
+## Staging deployment record
 
-1. Authenticate the local AWS CLI session.
-2. Run CDK diff for the staging stack.
-3. Deploy the staging auth Lambda and the two API Gateway routes.
-4. Confirm the imported Cognito user pool has email delivery and account recovery enabled.
-5. Trigger a reset for the approved controlled test account and confirm receipt.
-6. Complete the reset, sign in with the new password, and confirm the old password is rejected.
-7. Exercise setup-code resend and confirm only the latest code works.
-8. Push the frontend commit so Amplify publishes the new page and links.
+Deployed on 2026-07-15 to `SaviansAssessment-staging`:
 
+- CDK diff contained only the auth Lambda update, two API Gateway routes, integrations, and Lambda invocation permissions.
+- CloudFormation deployment completed successfully.
+- Cognito verified-email account recovery, concealed user-existence errors, and token revocation were confirmed enabled.
+- Cognito accepted a controlled password-reset request for the approved verified test account and reported email delivery.
+- The public resend route reached the deployed Lambda and returned the expected not-found response for a deliberately invalid invite.
+- The existing-account claim route returned the expected unauthorized response without a JWT.
+- Git commit `5c989d5` was pushed to `main`.
+- Amplify job `6` completed BUILD, DEPLOY, and VERIFY successfully.
+- `https://assessments.savians.com/assessment/forgot-password` returned HTTP 200 with the deployed recovery content.
+
+Final manual acceptance checks use the code delivered to the controlled inbox:
+
+1. Submit the latest code and a policy-compliant new password.
+2. Sign in with the new password.
+3. Confirm the previous password is rejected.
+4. During a paid test-client setup, request a replacement verification code and confirm only the newest code is accepted.
