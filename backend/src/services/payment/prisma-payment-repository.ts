@@ -95,12 +95,13 @@ export class PrismaPaymentRepository implements PaymentRepository {
     ]);
   }
 
-  async hasRecentInvoiceStatusEmail(sessionId: string, since: Date): Promise<boolean> {
-    const recent = await this.prisma.emailEvent.findFirst({
-      where: { sessionId, templateKey: "INVOICE_STATUS", status: DeliveryStatus.SENT, sentAt: { gte: since } },
-      select: { id: true }
+  async findLatestInvoiceStatusEmailSentAt(sessionId: string): Promise<Date | null> {
+    const latest = await this.prisma.emailEvent.findFirst({
+      where: { sessionId, templateKey: "INVOICE_STATUS", status: DeliveryStatus.SENT, sentAt: { not: null } },
+      orderBy: { sentAt: "desc" },
+      select: { sentAt: true }
     });
-    return Boolean(recent);
+    return latest?.sentAt ?? null;
   }
 
   async recordInvoiceStatusEmail(input: {

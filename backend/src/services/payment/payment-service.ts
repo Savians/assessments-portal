@@ -44,7 +44,7 @@ export interface PaymentRepository {
   recordStillOpen(sessionId: string, balance: number, checkedAt: Date): Promise<void>;
   recordPaidVerified(sessionId: string, balance: number, checkedAt: Date): Promise<void>;
   recordVerificationFailure(sessionId: string, message: string, checkedAt: Date): Promise<void>;
-  hasRecentInvoiceStatusEmail(sessionId: string, since: Date): Promise<boolean>;
+  findLatestInvoiceStatusEmailSentAt(sessionId: string): Promise<Date | null>;
   recordInvoiceStatusEmail(input: {
     sessionId: string;
     recipientEmail: string;
@@ -64,7 +64,7 @@ export interface InvoiceStatusNotifier {
 }
 
 export class PaymentFlowError extends Error {
-  constructor(readonly code: string, message: string, readonly statusCode: number) {
+  constructor(readonly code: string, message: string, readonly statusCode: number, readonly retryAfterSeconds?: number) {
     super(message);
   }
 }
@@ -72,6 +72,7 @@ export class PaymentFlowError extends Error {
 const hashStatusToken = (token: string) => createHash("sha256").update(token).digest("hex");
 const requestId = (kind: string, sessionId: string) => createHash("sha256").update(`${kind}:${sessionId}`).digest("hex").slice(0, 50);
 const moneyEquals = (left: number | undefined, right: number) => Math.round((left ?? Number.NaN) * 100) === Math.round(right * 100);
+export const INVOICE_RESEND_COOLDOWN_SECONDS = 60;
 
 export class PaymentStatusService {
   constructor(
@@ -83,14 +84,15 @@ export class PaymentStatusService {
   ) {}
 
   async load(token: string) {
-    return this.toResponse(await this.resolveToken(token), token);
+    const session = await this.resolveToken(token);
+    return this.toResponse(session, token, await this.resendAvailableAt(session.id));
   }
 
   async refresh(token: string) {
     const session = await this.resolveToken(token);
     if (!session.qbInvoiceId) return this.toResponse(session, token);
     const refreshed = await this.verifyInvoice(session);
-    return this.toResponse(refreshed, token);
+    return this.toResponse(refreshed, token, await this.resendAvailableAt(session.id));
   }
 
   async resendInvoiceEmail(token: string) {
@@ -99,9 +101,10 @@ export class PaymentStatusService {
     if (!["PAYMENT_PENDING", "PAYMENT_VERIFYING", "PAID_VERIFIED"].includes(session.status)) {
       throw new PaymentFlowError("INVOICE_NOT_SENDABLE", "This assessment is not ready for invoice resend.", 409);
     }
-    const since = new Date(this.now().getTime() - 5 * 60 * 1000);
-    if (await this.repository.hasRecentInvoiceStatusEmail(session.id, since)) {
-      throw new PaymentFlowError("RESEND_RATE_LIMITED", "Please wait a few minutes before resending the invoice email.", 429);
+    const availableAt = await this.resendAvailableAt(session.id);
+    if (availableAt) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((new Date(availableAt).getTime() - this.now().getTime()) / 1000));
+      throw new PaymentFlowError("RESEND_RATE_LIMITED", `Please wait ${retryAfterSeconds} seconds before resending the invoice email.`, 429, retryAfterSeconds);
     }
     await this.quickBooks.sendInvoice(session.qbInvoiceId, session.normalizedEmail, requestId("manual-send-invoice", session.id));
     const statusUrl = `${this.frontendUrl.replace(/\/$/, "")}/assessment/status/${token}`;
@@ -120,7 +123,7 @@ export class PaymentStatusService {
       await this.repository.recordInvoiceStatusEmail({ sessionId: session.id, recipientEmail: session.normalizedEmail, status: "FAILED", failureReason: message, sentAt: this.now() });
       throw new PaymentFlowError("RESEND_EMAIL_FAILED", "QuickBooks was asked to resend the invoice, but the Savians status email failed.", 502);
     }
-    return { ok: true };
+    return { ok: true, retryAfterSeconds: INVOICE_RESEND_COOLDOWN_SECONDS };
   }
 
   async reconcileInvoiceId(invoiceId: string): Promise<PaymentSession | null> {
@@ -172,7 +175,14 @@ export class PaymentStatusService {
     }
   }
 
-  private toResponse(session: PaymentSession, token: string) {
+  private async resendAvailableAt(sessionId: string): Promise<string | undefined> {
+    const latest = await this.repository.findLatestInvoiceStatusEmailSentAt(sessionId);
+    if (!latest) return undefined;
+    const availableAt = new Date(latest.getTime() + INVOICE_RESEND_COOLDOWN_SECONDS * 1000);
+    return availableAt.getTime() > this.now().getTime() ? availableAt.toISOString() : undefined;
+  }
+
+  private toResponse(session: PaymentSession, token: string, invoiceEmailResendAvailableAt?: string) {
     return {
       status: session.status,
       invoiceNumber: session.qbInvoiceNumber ?? undefined,
@@ -182,6 +192,7 @@ export class PaymentStatusService {
       lastStatusCheckedAt: session.lastStatusCheckedAt?.toISOString(),
       paymentVerifiedAt: session.paymentVerifiedAt?.toISOString(),
       accountCreationAllowed: session.accountCreationAllowed,
+      invoiceEmailResendAvailableAt,
       nextUrl: session.status === "PAID_VERIFIED" || session.status === "ACCOUNT_INVITED" ? "/assessment/recover?stage=account" : `/assessment/status/${token}`
     };
   }

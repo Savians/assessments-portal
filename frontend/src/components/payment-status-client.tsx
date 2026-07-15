@@ -28,6 +28,15 @@ const isVerifiedForSetup = (details: PaymentStatusResponse | null) =>
       (details.status === "PAID_VERIFIED" || details.status === "ACCOUNT_INVITED")
   );
 
+const secondsUntil = (timestamp?: string) =>
+  timestamp ? Math.max(0, Math.ceil((new Date(timestamp).getTime() - Date.now()) / 1000)) : 0;
+
+const formatCooldown = (seconds: number) => {
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes > 0 ? `${minutes}:${remainder.toString().padStart(2, "0")}` : `${remainder}s`;
+};
+
 export function PaymentStatusClient({ token }: { token: string }) {
   const router = useRouter();
   const [details, setDetails] = useState<PaymentStatusResponse | null>(null);
@@ -38,6 +47,8 @@ export function PaymentStatusClient({ token }: { token: string }) {
   const [startingSetup, setStartingSetup] = useState(false);
   const [autoStartedSetup, setAutoStartedSetup] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendNoticeIsCooldown, setResendNoticeIsCooldown] = useState(false);
 
   const paid = isVerifiedForSetup(details);
 
@@ -85,6 +96,18 @@ export function PaymentStatusClient({ token }: { token: string }) {
     return () => window.clearInterval(interval);
   }, [details?.status, token]);
 
+  useEffect(() => {
+    setResendCooldown(secondsUntil(details?.invoiceEmailResendAvailableAt));
+  }, [details?.invoiceEmailResendAvailableAt]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const interval = window.setInterval(() => {
+      setResendCooldown((current) => Math.max(0, current - 1));
+    }, 1_000);
+    return () => window.clearInterval(interval);
+  }, [resendCooldown]);
+
   const refresh = async () => {
     setRefreshing(true);
     setError(null);
@@ -105,15 +128,23 @@ export function PaymentStatusClient({ token }: { token: string }) {
     setResending(true);
     setError(null);
     setResendMessage(null);
+    setResendNoticeIsCooldown(false);
     try {
-      await resendInvoiceEmail(token);
+      const result = await resendInvoiceEmail(token);
+      setResendCooldown(result.retryAfterSeconds);
       setResendMessage("Invoice email resent. Please check your inbox and spam folder.");
     } catch (caught) {
-      setError(
-        caught instanceof AssessmentApiError
-          ? caught.message
-          : "We could not resend the invoice email."
-      );
+      if (caught instanceof AssessmentApiError && caught.statusCode === 429) {
+        setResendCooldown(caught.retryAfterSeconds ?? 60);
+        setResendNoticeIsCooldown(true);
+        setResendMessage("An invoice email was sent recently. You can resend it when the countdown finishes.");
+      } else {
+        setError(
+          caught instanceof AssessmentApiError
+            ? caught.message
+            : "We could not resend the invoice email."
+        );
+      }
     } finally {
       setResending(false);
     }
@@ -164,7 +195,7 @@ export function PaymentStatusClient({ token }: { token: string }) {
             </div>
           ) : null}
           {resendMessage ? (
-            <p className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">
+            <p className={`mt-5 rounded-xl p-4 text-sm ${resendNoticeIsCooldown ? "border border-amber-200 bg-amber-50 text-amber-950" : "bg-emerald-50 text-emerald-900"}`}>
               {resendMessage}
             </p>
           ) : null}
@@ -226,10 +257,14 @@ export function PaymentStatusClient({ token }: { token: string }) {
                   type="button"
                   variant="outline"
                   onClick={resend}
-                  disabled={refreshing || resending || !details?.invoiceNumber}
+                  disabled={refreshing || resending || resendCooldown > 0 || !details?.invoiceNumber}
                 >
                   <Mail aria-hidden className="mr-2" size={17} />
-                  {resending ? "Resending..." : "Resend invoice email"}
+                  {resending
+                    ? "Resending..."
+                    : resendCooldown > 0
+                      ? `Resend in ${formatCooldown(resendCooldown)}`
+                      : "Resend invoice email"}
                 </Button>
               </>
             )}
@@ -242,10 +277,15 @@ export function PaymentStatusClient({ token }: { token: string }) {
             </p>
           ) : null}
           {isPending(details?.status) ? (
-            <p className="mt-4 text-sm text-slate-500">
-              You can safely close this page after paying from the invoice email. Return using this
-              same secure link, or leave it open and it will check automatically every 20 seconds.
-            </p>
+            <div className="mt-4 space-y-2 text-sm text-slate-500">
+              {resendCooldown > 0 ? (
+                <p>To prevent duplicate QuickBooks emails, resend unlocks automatically when the countdown ends.</p>
+              ) : null}
+              <p>
+                You can safely close this page after paying from the invoice email. Return using this
+                same secure link, or leave it open and it will check automatically every 20 seconds.
+              </p>
+            </div>
           ) : null}
         </Card>
 

@@ -9,14 +9,19 @@ export interface StartAssessmentResponse {
 }
 
 interface ApiErrorBody {
+  error?: string;
   message?: string;
   issues?: Array<{ path: string; message: string }>;
+  retryAfterSeconds?: number;
 }
 
 export class AssessmentApiError extends Error {
   constructor(
     message: string,
-    readonly issues: ApiErrorBody["issues"] = []
+    readonly issues: ApiErrorBody["issues"] = [],
+    readonly code?: string,
+    readonly statusCode?: number,
+    readonly retryAfterSeconds?: number
   ) {
     super(message);
     this.name = "AssessmentApiError";
@@ -106,6 +111,7 @@ export interface PaymentStatusResponse {
   lastStatusCheckedAt?: string;
   paymentVerifiedAt?: string;
   accountCreationAllowed: boolean;
+  invoiceEmailResendAvailableAt?: string;
   nextUrl: string;
 }
 
@@ -125,13 +131,22 @@ export async function refreshPaymentStatus(token: string): Promise<PaymentStatus
   return body as PaymentStatusResponse;
 }
 
-export async function resendInvoiceEmail(token: string): Promise<{ ok: true }> {
+export async function resendInvoiceEmail(token: string): Promise<{ ok: true; retryAfterSeconds: number }> {
   const response = await fetch(`${apiBaseUrl()}/api/assessment/resend-invoice-email`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }), cache: "no-store"
   });
-  const body = (await response.json()) as { ok: true } | ApiErrorBody;
-  if (!response.ok) throw new AssessmentApiError((body as ApiErrorBody).message ?? "We could not resend the invoice email.");
-  return body as { ok: true };
+  const body = (await response.json()) as { ok: true; retryAfterSeconds: number } | ApiErrorBody;
+  if (!response.ok) {
+    const error = body as ApiErrorBody;
+    throw new AssessmentApiError(
+      error.message ?? "We could not resend the invoice email.",
+      error.issues,
+      error.error,
+      response.status,
+      error.retryAfterSeconds
+    );
+  }
+  return body as { ok: true; retryAfterSeconds: number };
 }
 
 export async function sendAccountSetupInvite(token: string): Promise<{ ok: true }> {

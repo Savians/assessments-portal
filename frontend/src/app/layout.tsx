@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { APP_NAME } from "@/lib/constants";
 import { AppProviders } from "@/providers/app-providers";
 import { HeaderAction } from "@/components/header-action";
+import { ThemeToggle } from "@/components/theme-toggle";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,7 +15,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var key='savians-assessment-theme';var saved=localStorage.getItem(key);var dark=saved?saved==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',dark);document.documentElement.style.colorScheme=dark?'dark':'light';}catch(e){}})();`
+          }}
+        />
+      </head>
       <body>
         <AppProviders>
           <header className="border-b border-slate-200 bg-white">
@@ -30,6 +38,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
                 />
               </Link>
               <div className="flex items-center gap-3 sm:gap-5">
+                <ThemeToggle />
                 <HeaderAction />
                 <span className="hidden text-sm text-slate-500 md:block">
                   Secure Tax Assessment Portal

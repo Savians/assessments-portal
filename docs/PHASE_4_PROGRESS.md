@@ -9,6 +9,7 @@ Status: **Core implementation complete locally; external staging/webhook QA pend
 - Public `GET /api/assessment/status/{token}` payment-status endpoint.
 - Public `POST /api/assessment/refresh-payment-status` manual refresh endpoint.
 - Public `POST /api/assessment/resend-invoice-email` manual resend endpoint.
+- Invoice resend is protected by a 60-second server-side cooldown. The payment-status response exposes the next available time, and the frontend disables the resend action with a live countdown instead of treating an expected `429` as an application failure.
 - Secure status-token hashing and expiry validation reused from the assessment flow.
 - QuickBooks invoice re-fetch by stored invoice ID.
 - Strict paid verification:

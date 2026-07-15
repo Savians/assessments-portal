@@ -43,7 +43,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
     }
     return json(404, { error: "NOT_FOUND", message: "The requested payment endpoint does not exist." });
   } catch (error) {
-    if (error instanceof PaymentFlowError) return json(error.statusCode, { error: error.code, message: error.message });
+    if (error instanceof PaymentFlowError) return json(error.statusCode, {
+      error: error.code,
+      message: error.message,
+      ...(error.retryAfterSeconds ? { retryAfterSeconds: error.retryAfterSeconds } : {})
+    });
     if (error instanceof ZodError) return json(400, { error: "VALIDATION_ERROR", message: "Please correct the payment request.", issues: error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })) });
     if (error instanceof SyntaxError) return json(400, { error: "INVALID_JSON", message: "The request body is invalid." });
     log("error", "payment request failed", { requestId: context.awsRequestId, error: error instanceof Error ? error.message : "Unknown error" });

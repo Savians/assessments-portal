@@ -18,14 +18,14 @@ class Repo implements PaymentRepository {
     qbInvoiceBalance: 2997,
     accountCreationAllowed: false
   };
-  stillOpen = 0; paid = 0; failed = 0; emails = 0; recentEmail = false;
+  stillOpen = 0; paid = 0; failed = 0; emails = 0; latestEmailSentAt: Date | null = null;
   async findSessionByTokenHash() { return this.session; }
   async findSessionByInvoiceId(invoiceId: string) { return invoiceId === this.session.qbInvoiceId ? this.session : null; }
   async findOpenInvoiceSessions() { return [this.session]; }
   async recordStillOpen(_sessionId: string, balance: number, checkedAt: Date) { this.stillOpen++; this.session.qbInvoiceBalance = balance; this.session.lastStatusCheckedAt = checkedAt; }
   async recordPaidVerified(_sessionId: string, balance: number, checkedAt: Date) { this.paid++; this.session.status = "PAID_VERIFIED"; this.session.qbInvoiceBalance = balance; this.session.lastStatusCheckedAt = checkedAt; this.session.paymentVerifiedAt = checkedAt; this.session.accountCreationAllowed = true; }
   async recordVerificationFailure() { this.failed++; }
-  async hasRecentInvoiceStatusEmail() { return this.recentEmail; }
+  async findLatestInvoiceStatusEmailSentAt() { return this.latestEmailSentAt; }
   async recordInvoiceStatusEmail() { this.emails++; }
 }
 
@@ -74,8 +74,22 @@ describe("PaymentStatusService", () => {
 
   it("rate-limits invoice email resend", async () => {
     const { repo, qbo, service } = build();
-    repo.recentEmail = true;
-    await expect(service.resendInvoiceEmail(token)).rejects.toMatchObject({ code: "RESEND_RATE_LIMITED" });
+    repo.latestEmailSentAt = new Date("2026-07-05T11:59:30Z");
+    await expect(service.resendInvoiceEmail(token)).rejects.toMatchObject({
+      code: "RESEND_RATE_LIMITED",
+      retryAfterSeconds: 30
+    });
     expect(qbo.sends).toBe(0);
+  });
+
+  it("exposes resend availability and starts a new cooldown after a successful resend", async () => {
+    const { repo, qbo, service } = build();
+    repo.latestEmailSentAt = new Date("2026-07-05T11:59:30Z");
+    await expect(service.load(token)).resolves.toMatchObject({
+      invoiceEmailResendAvailableAt: "2026-07-05T12:00:30.000Z"
+    });
+    repo.latestEmailSentAt = null;
+    await expect(service.resendInvoiceEmail(token)).resolves.toEqual({ ok: true, retryAfterSeconds: 60 });
+    expect(qbo.sends).toBe(1);
   });
 });
