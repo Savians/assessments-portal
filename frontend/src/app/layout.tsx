@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowLeft } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
 import { AppProviders } from "@/providers/app-providers";
+import { HeaderAction } from "@/components/header-action";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -30,15 +30,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
                 />
               </Link>
               <div className="flex items-center gap-3 sm:gap-5">
-                <Link
-                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-navy-800 bg-white px-3 py-2 text-sm font-semibold text-navy-800 transition hover:bg-navy-50 sm:px-4"
-                  href="/"
-                  aria-label="Back to Savians Assessments home"
-                >
-                  <ArrowLeft aria-hidden size={17} />
-                  <span className="hidden sm:inline">Back to Home</span>
-                  <span className="sm:hidden">Back</span>
-                </Link>
+                <HeaderAction />
                 <span className="hidden text-sm text-slate-500 md:block">
                   Secure Tax Assessment Portal
                 </span>
