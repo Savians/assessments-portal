@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { MailCheck, RotateCcw } from "lucide-react";
 import { AssessmentApiError, recoverAssessment } from "@/services/assessment-api";
@@ -50,6 +51,10 @@ export function RecoverAssessmentClient() {
             Send Secure Resume Link
           </Button>
         </form>
+        <div className="mt-6 flex flex-wrap justify-center gap-x-6 gap-y-3 border-t border-slate-200 pt-5 text-sm font-semibold text-navy-700">
+          <Link className="underline underline-offset-4" href="/portal/dashboard">Sign in to dashboard</Link>
+          <Link className="underline underline-offset-4" href={`/assessment/forgot-password?email=${encodeURIComponent(email)}`}>Forgot Password?</Link>
+        </div>
       </Card>
     </section>
   );

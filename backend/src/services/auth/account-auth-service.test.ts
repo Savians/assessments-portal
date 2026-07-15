@@ -15,6 +15,8 @@ class Repo implements AccountAuthRepository {
   };
   invite?: AccountInvite;
   emails = 0; linked = 0; revoked = 0; invited = 0; verificationCodes = 0; verificationUsed = 0; verificationActive = true;
+  latestVerificationCreatedAt: Date | null = null;
+  linkedInput?: Parameters<AccountAuthRepository["linkConfirmedAccount"]>[0];
   async findSessionByStatusTokenHash() { return this.session; }
   async createAccountInvite(input: { sessionId: string; tokenHash: string; expiresAt: Date }) {
     this.invite = { id: "invite-1", sessionId: input.sessionId, tokenHash: input.tokenHash, expiresAt: input.expiresAt, session: this.session };
@@ -22,17 +24,18 @@ class Repo implements AccountAuthRepository {
   async revokeUnusedInvites() { this.revoked++; }
   async markSessionInvited() { this.invited++; this.session.status = "ACCOUNT_INVITED"; }
   async findInviteByTokenHash() { return this.invite ?? null; }
-  async linkConfirmedAccount() { this.linked++; this.session.status = "ACCOUNT_CREATED"; }
+  async linkConfirmedAccount(input: Parameters<AccountAuthRepository["linkConfirmedAccount"]>[0]) { this.linked++; this.linkedInput = input; this.session.status = "ACCOUNT_CREATED"; if (this.invite) this.invite.usedAt = input.confirmedAt; }
   async recordInviteEmail() { this.emails++; }
   async revokeAccountVerificationCodes() { this.verificationUsed++; }
-  async createAccountVerificationCode() { this.verificationCodes++; }
+  async createAccountVerificationCode() { this.verificationCodes++; this.latestVerificationCreatedAt = new Date("2026-07-06T00:00:00Z"); }
+  async findLatestAccountVerificationCodeCreatedAt() { return this.latestVerificationCreatedAt; }
   async hasActiveAccountVerificationCode() { return this.verificationCodes > 0 && this.verificationActive; }
   async markAccountVerificationCodeUsed() { this.verificationUsed++; }
 }
 
 class Cognito implements CognitoAccountGateway {
-  signups = 0; confirms = 0; verified = true;
-  async signUp() { this.signups++; }
+  signups = 0; confirms = 0; verified = true; accountStatus: "PASSWORD_SET" | "EXISTING_CONFIRMED" = "PASSWORD_SET";
+  async prepareAccount() { this.signups++; return { status: this.accountStatus }; }
   async confirmSignUp() { this.confirms++; return { userSub: "sub-1", emailVerified: this.verified }; }
 }
 
@@ -91,6 +94,53 @@ describe("AccountAuthService", () => {
     expect(repo.verificationCodes).toBe(1);
     expect(cognito.confirms).toBe(1);
     expect(repo.linked).toBe(1);
+    expect(repo.linkedInput?.verificationTokenHash).toBeTruthy();
+  });
+
+  it("returns existing confirmed users to sign-in without resetting their password or sending a new-account code", async () => {
+    const { repo, cognito, notifier, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    cognito.accountStatus = "EXISTING_CONFIRMED";
+    await expect(service.startSetup({ inviteToken: "invite-token".repeat(4), password: "StrongPass123!" }))
+      .resolves.toEqual({ status: "EXISTING_ACCOUNT", email: "client@example.com" });
+    expect(notifier.codes).toBe(0);
+    expect(repo.verificationCodes).toBe(0);
+  });
+
+  it("resends a replacement verification code after the cooldown", async () => {
+    const { repo, notifier, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    repo.latestVerificationCreatedAt = new Date("2026-07-05T23:58:00Z");
+    await expect(service.resendVerificationCode({ inviteToken: "invite-token".repeat(4) }))
+      .resolves.toEqual({ ok: true, retryAfterSeconds: 60 });
+    expect(notifier.codes).toBe(1);
+  });
+
+  it("rate-limits verification-code resend attempts", async () => {
+    const { repo, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    repo.latestVerificationCreatedAt = new Date("2026-07-05T23:59:30Z");
+    await expect(service.resendVerificationCode({ inviteToken: "invite-token".repeat(4) }))
+      .rejects.toMatchObject({ code: "VERIFICATION_RESEND_RATE_LIMITED", statusCode: 429 });
+  });
+
+  it("links an existing confirmed account only when authenticated claims match the assessment email", async () => {
+    const { repo, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    await expect(service.claimExistingAccount(
+      { inviteToken: "invite-token".repeat(4) },
+      { sub: "existing-sub", email: "client@example.com", email_verified: "true" }
+    )).resolves.toEqual({ status: "ACCOUNT_CREATED", nextUrl: "/portal/dashboard" });
+    expect(repo.linkedInput?.cognitoUserId).toBe("existing-sub");
+  });
+
+  it("rejects an existing-account claim made with a different email", async () => {
+    const { service } = build();
+    await service.reissueInvite({ token: statusToken });
+    await expect(service.claimExistingAccount(
+      { inviteToken: "invite-token".repeat(4) },
+      { sub: "other-sub", email: "other@example.com", email_verified: true }
+    )).rejects.toMatchObject({ code: "ACCOUNT_EMAIL_MISMATCH", statusCode: 403 });
   });
 
   it("does not link an account when Cognito email verification is incomplete", async () => {

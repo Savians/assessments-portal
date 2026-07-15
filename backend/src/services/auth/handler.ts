@@ -31,7 +31,12 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
     if (method === "POST" && path.endsWith("/account/invite/start")) return json(200, await service.startBrowserInvite(body));
     if (method === "POST" && path.endsWith("/account/invite/validate")) return json(200, await service.validateInvite(body));
     if (method === "POST" && path.endsWith("/account/setup")) return json(200, await service.startSetup(body));
+    if (method === "POST" && path.endsWith("/account/verification/resend")) return json(200, await service.resendVerificationCode(body));
     if (method === "POST" && path.endsWith("/account/confirm")) return json(200, await service.confirm(body));
+    if (method === "POST" && path.endsWith("/account/existing/claim")) {
+      const requestContext = event.requestContext as typeof event.requestContext & { authorizer?: { jwt?: { claims?: unknown } } };
+      return json(200, await service.claimExistingAccount(body, requestContext.authorizer?.jwt?.claims));
+    }
     return json(404, { error: "NOT_FOUND", message: "The requested account endpoint does not exist." });
   } catch (error) {
     if (error instanceof AccountAuthError) return json(error.statusCode, { error: error.code, message: error.message });

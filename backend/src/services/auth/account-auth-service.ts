@@ -53,10 +53,13 @@ export interface AccountAuthRepository {
     cognitoUserId: string;
     inviteId: string;
     confirmedAt: Date;
+    verificationTokenHash?: string;
+    verificationType?: string;
   }): Promise<void>;
   recordInviteEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED" | "SKIPPED"; failureReason?: string; sentAt: Date }): Promise<void>;
   revokeAccountVerificationCodes(sessionId: string, verificationType: string, at: Date): Promise<void>;
   createAccountVerificationCode(input: { sessionId: string; tokenHash: string; verificationType: string; expiresAt: Date }): Promise<void>;
+  findLatestAccountVerificationCodeCreatedAt(sessionId: string, verificationType: string): Promise<Date | null>;
   hasActiveAccountVerificationCode(input: { sessionId: string; tokenHash: string; verificationType: string; now: Date }): Promise<boolean>;
   markAccountVerificationCodeUsed(input: { sessionId: string; tokenHash: string; verificationType: string; usedAt: Date }): Promise<void>;
 }
@@ -67,7 +70,7 @@ export interface AccountInviteNotifier {
 }
 
 export interface CognitoAccountGateway {
-  signUp(input: { email: string; password: string; fullName: string }): Promise<void>;
+  prepareAccount(input: { email: string; password: string; fullName: string }): Promise<{ status: "PASSWORD_SET" | "EXISTING_CONFIRMED" }>;
   confirmSignUp(input: { email: string; confirmationCode: string }): Promise<{ userSub: string; emailVerified: boolean }>;
 }
 
@@ -91,6 +94,12 @@ export const confirmSchema = z.object({
   inviteToken: z.string().min(32).max(256),
   confirmationCode: z.string().trim().min(4).max(12)
 });
+export const existingAccountClaimSchema = z.object({ inviteToken: z.string().min(32).max(256) });
+export const portalClaimsSchema = z.object({
+  sub: z.string().min(1),
+  email: z.string().email(),
+  email_verified: z.union([z.literal(true), z.literal("true")])
+});
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const generateToken = () => randomBytes(32).toString("base64url");
@@ -99,6 +108,14 @@ const verificationType = "ACCOUNT_SETUP_EMAIL";
 const verificationHash = (inviteId: string, code: string) =>
   hash(`account-setup-email:${inviteId}:${code.trim()}`);
 const fullName = (session: PaidSession) => [session.firstName, session.middleName, session.lastName].filter(Boolean).join(" ");
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const completedAccountStatuses: AuthSessionStatus[] = [
+  "ACCOUNT_CREATED",
+  "PROFILE_IN_PROGRESS",
+  "PROFILE_COMPLETED",
+  "DOCUMENTS_IN_PROGRESS",
+  "DOCUMENTS_SUBMITTED"
+];
 
 export class AccountAuthService {
   constructor(
@@ -160,21 +177,63 @@ export class AccountAuthService {
 
   async validateInvite(raw: unknown) {
     const input = inviteTokenSchema.parse(raw);
-    const invite = await this.resolveInvite(input.inviteToken);
+    const invite = await this.repository.findInviteByTokenHash(hash(input.inviteToken));
+    if (!invite) throw new AccountAuthError("INVALID_INVITE", "This account setup invite is invalid.", 404);
+    if (invite.usedAt && completedAccountStatuses.includes(invite.session.status)) {
+      return {
+        status: "ACCOUNT_CREATED" as const,
+        email: invite.session.normalizedEmail,
+        clientName: fullName(invite.session),
+        assessmentYear: invite.session.assessmentYear,
+        expiresAt: invite.expiresAt.toISOString(),
+        nextUrl: "/portal/dashboard"
+      };
+    }
+    this.assertActiveInvite(invite);
     return {
+      status: "INVITE_ACTIVE" as const,
       email: invite.session.normalizedEmail,
       clientName: fullName(invite.session),
       assessmentYear: invite.session.assessmentYear,
-      expiresAt: invite.expiresAt.toISOString()
+      expiresAt: invite.expiresAt.toISOString(),
+      nextUrl: null
     };
   }
 
-  async startSetup(raw: unknown): Promise<{ status: "CONFIRMATION_REQUIRED"; email: string }> {
+  async startSetup(raw: unknown): Promise<{ status: "CONFIRMATION_REQUIRED" | "EXISTING_ACCOUNT"; email: string }> {
     const input = setupSchema.parse(raw);
     const invite = await this.resolveInvite(input.inviteToken);
-    await this.cognito.signUp({ email: invite.session.normalizedEmail, password: input.password, fullName: fullName(invite.session) });
-    const code = generateVerificationCode();
+    const account = await this.cognito.prepareAccount({
+      email: invite.session.normalizedEmail,
+      password: input.password,
+      fullName: fullName(invite.session)
+    });
+    if (account.status === "EXISTING_CONFIRMED") {
+      return { status: "EXISTING_ACCOUNT", email: invite.session.normalizedEmail };
+    }
+    await this.issueVerificationCode(invite, false);
+    return { status: "CONFIRMATION_REQUIRED", email: invite.session.normalizedEmail };
+  }
+
+  async resendVerificationCode(raw: unknown): Promise<{ ok: true; retryAfterSeconds: number }> {
+    const input = inviteTokenSchema.parse(raw);
+    const invite = await this.resolveInvite(input.inviteToken);
+    await this.issueVerificationCode(invite, true);
+    return { ok: true, retryAfterSeconds: 60 };
+  }
+
+  private async issueVerificationCode(invite: AccountInvite, enforceCooldown: boolean): Promise<void> {
     const now = this.now();
+    if (enforceCooldown) {
+      const latest = await this.repository.findLatestAccountVerificationCodeCreatedAt(invite.sessionId, verificationType);
+      if (latest) {
+        const retryAfterSeconds = Math.ceil((latest.getTime() + 60_000 - now.getTime()) / 1000);
+        if (retryAfterSeconds > 0) {
+          throw new AccountAuthError("VERIFICATION_RESEND_RATE_LIMITED", `Please wait ${retryAfterSeconds} seconds before requesting another code.`, 429);
+        }
+      }
+    }
+    const code = generateVerificationCode();
     await this.repository.revokeAccountVerificationCodes(invite.sessionId, verificationType, now);
     await this.repository.createAccountVerificationCode({
       sessionId: invite.sessionId,
@@ -188,31 +247,49 @@ export class AccountAuthService {
       code,
       assessmentYear: invite.session.assessmentYear
     });
-    return { status: "CONFIRMATION_REQUIRED", email: invite.session.normalizedEmail };
   }
 
   async confirm(raw: unknown): Promise<{ status: "ACCOUNT_CREATED"; nextUrl: string }> {
     const input = confirmSchema.parse(raw);
-    const invite = await this.resolveInvite(input.inviteToken);
+    const invite = await this.repository.findInviteByTokenHash(hash(input.inviteToken));
+    if (!invite) throw new AccountAuthError("INVALID_INVITE", "This account setup invite is invalid.", 404);
+    if (invite.usedAt && completedAccountStatuses.includes(invite.session.status)) {
+      return { status: "ACCOUNT_CREATED", nextUrl: "/portal/dashboard" };
+    }
+    this.assertActiveInvite(invite);
+    const tokenHash = verificationHash(invite.id, input.confirmationCode);
     const verified = await this.repository.hasActiveAccountVerificationCode({
       sessionId: invite.sessionId,
-      tokenHash: verificationHash(invite.id, input.confirmationCode),
+      tokenHash,
       verificationType,
       now: this.now()
     });
     if (!verified) throw new AccountAuthError("INVALID_VERIFICATION_CODE", "The verification code is invalid or expired.", 400);
-    await this.repository.markAccountVerificationCodeUsed({
-      sessionId: invite.sessionId,
-      tokenHash: verificationHash(invite.id, input.confirmationCode),
-      verificationType,
-      usedAt: this.now()
-    });
     const confirmed = await this.cognito.confirmSignUp({ email: invite.session.normalizedEmail, confirmationCode: input.confirmationCode });
     if (!confirmed.emailVerified) throw new AccountAuthError("EMAIL_NOT_VERIFIED", "Email verification was not completed.", 409);
     await this.repository.linkConfirmedAccount({
       sessionId: invite.sessionId,
       normalizedEmail: invite.session.normalizedEmail,
       cognitoUserId: confirmed.userSub,
+      inviteId: invite.id,
+      confirmedAt: this.now(),
+      verificationTokenHash: tokenHash,
+      verificationType
+    });
+    return { status: "ACCOUNT_CREATED", nextUrl: "/portal/dashboard" };
+  }
+
+  async claimExistingAccount(raw: unknown, rawClaims: unknown): Promise<{ status: "ACCOUNT_CREATED"; nextUrl: string }> {
+    const input = existingAccountClaimSchema.parse(raw);
+    const claims = portalClaimsSchema.parse(rawClaims);
+    const invite = await this.resolveInvite(input.inviteToken);
+    if (normalizeEmail(claims.email) !== normalizeEmail(invite.session.normalizedEmail)) {
+      throw new AccountAuthError("ACCOUNT_EMAIL_MISMATCH", "Sign in with the email address associated with this assessment.", 403);
+    }
+    await this.repository.linkConfirmedAccount({
+      sessionId: invite.sessionId,
+      normalizedEmail: invite.session.normalizedEmail,
+      cognitoUserId: claims.sub,
       inviteId: invite.id,
       confirmedAt: this.now()
     });
@@ -222,12 +299,16 @@ export class AccountAuthService {
   private async resolveInvite(token: string): Promise<AccountInvite> {
     const invite = await this.repository.findInviteByTokenHash(hash(token));
     if (!invite) throw new AccountAuthError("INVALID_INVITE", "This account setup invite is invalid.", 404);
+    this.assertActiveInvite(invite);
+    return invite;
+  }
+
+  private assertActiveInvite(invite: AccountInvite): void {
     if (invite.usedAt) throw new AccountAuthError("INVITE_USED", "This account setup invite has already been used.", 409);
     if (invite.revokedAt) throw new AccountAuthError("INVITE_REVOKED", "This account setup invite has been replaced.", 409);
     if (invite.expiresAt.getTime() <= this.now().getTime()) throw new AccountAuthError("INVITE_EXPIRED", "This account setup invite has expired.", 410);
     if (!invite.session.accountCreationAllowed || !["PAID_VERIFIED", "ACCOUNT_INVITED"].includes(invite.session.status)) {
       throw new AccountAuthError("PAYMENT_REQUIRED", "Account setup unlocks only after full payment verification.", 402);
     }
-    return invite;
   }
 }

@@ -4,7 +4,8 @@ import {
   AdminGetUserCommand,
   AdminSetUserPasswordCommand,
   AdminUpdateUserAttributesCommand,
-  CognitoIdentityProviderClient
+  CognitoIdentityProviderClient,
+  type AdminGetUserCommandOutput
 } from "@aws-sdk/client-cognito-identity-provider";
 import { z } from "zod";
 import type { CognitoAccountGateway } from "./account-auth-service";
@@ -15,15 +16,29 @@ const configSchema = z.object({
 
 const isUsernameExists = (error: unknown): boolean =>
   error instanceof Error && error.name === "UsernameExistsException";
+const isUserNotFound = (error: unknown): boolean =>
+  error instanceof Error && error.name === "UserNotFoundException";
 
 export class AwsCognitoAccountGateway implements CognitoAccountGateway {
   private readonly client = new CognitoIdentityProviderClient({});
   private readonly config = configSchema.parse(process.env);
 
-  async signUp(input: { email: string; password: string; fullName: string }): Promise<void> {
-    let createdUser = false;
+  async prepareAccount(input: { email: string; password: string; fullName: string }): Promise<{ status: "PASSWORD_SET" | "EXISTING_CONFIRMED" }> {
+    let existingUser: AdminGetUserCommandOutput | undefined;
     try {
-      await this.client.send(
+      existingUser = await this.client.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.config.COGNITO_USER_POOL_ID,
+          Username: input.email
+        })
+      );
+    } catch (error) {
+      if (!isUserNotFound(error)) throw error;
+    }
+
+    if (!existingUser) {
+      try {
+        await this.client.send(
         new AdminCreateUserCommand({
           UserPoolId: this.config.COGNITO_USER_POOL_ID,
           Username: input.email,
@@ -34,22 +49,41 @@ export class AwsCognitoAccountGateway implements CognitoAccountGateway {
             { Name: "email_verified", Value: "false" }
           ]
         })
-      );
-      createdUser = true;
-    } catch (error) {
-      if (!isUsernameExists(error)) throw error;
+        );
+      } catch (error) {
+        if (!isUsernameExists(error)) throw error;
+        existingUser = await this.client.send(
+          new AdminGetUserCommand({
+            UserPoolId: this.config.COGNITO_USER_POOL_ID,
+            Username: input.email
+          })
+        );
+      }
     }
 
-    if (createdUser) {
-      await this.client.send(
-        new AdminSetUserPasswordCommand({
-          UserPoolId: this.config.COGNITO_USER_POOL_ID,
-          Username: input.email,
-          Password: input.password,
-          Permanent: true
-        })
-      );
-    }
+    const emailVerified = existingUser?.UserAttributes?.find((attribute) => attribute.Name === "email_verified")?.Value === "true";
+    if (emailVerified) return { status: "EXISTING_CONFIRMED" };
+
+    await this.client.send(
+      new AdminUpdateUserAttributesCommand({
+        UserPoolId: this.config.COGNITO_USER_POOL_ID,
+        Username: input.email,
+        UserAttributes: [
+          { Name: "email", Value: input.email },
+          { Name: "name", Value: input.fullName },
+          { Name: "email_verified", Value: "false" }
+        ]
+      })
+    );
+    await this.client.send(
+      new AdminSetUserPasswordCommand({
+        UserPoolId: this.config.COGNITO_USER_POOL_ID,
+        Username: input.email,
+        Password: input.password,
+        Permanent: true
+      })
+    );
+    return { status: "PASSWORD_SET" };
   }
 
   async confirmSignUp(input: {

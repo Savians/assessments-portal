@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BriefcaseBusiness, Building2, CheckCircle2, ChevronRight, FileUp, LogOut, Plus, Save, Send, Trash2, UserRound } from "lucide-react";
@@ -261,7 +262,7 @@ function StatusPill({ label }: { label: string }) {
   return <StatusBadge status={status}>{label}</StatusBadge>;
 }
 
-export function PortalDashboardClient() {
+export function PortalDashboardClient({ initialEmail = "" }: { initialEmail?: string }) {
   const [activeTab, setActiveTab] = useState<DashboardTab>("personal");
   const [accessToken, setAccessToken] = useState("");
   const [dashboard, setDashboard] = useState<PortalDashboardResponse | null>(null);
@@ -270,7 +271,7 @@ export function PortalDashboardClient() {
   const [businessInvestments, setBusinessInvestments] = useState<PortalBusinessInvestment[]>([]);
   const [selectedPropertyIndex, setSelectedPropertyIndex] = useState<number | null>(null);
   const [selectedBusinessIndex, setSelectedBusinessIndex] = useState<number | null>(null);
-  const [loginEmail, setLoginEmail] = useState("");
+  const [loginEmail, setLoginEmail] = useState(initialEmail.trim().toLowerCase());
   const [loginPassword, setLoginPassword] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -484,6 +485,9 @@ export function PortalDashboardClient() {
             <Input label="Email" type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required />
             <Input label="Password" type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} required />
             <Button type="submit">Sign In & Open Dashboard</Button>
+            <Link className="text-center text-sm font-semibold text-navy-700 underline underline-offset-4" href={`/assessment/forgot-password?email=${encodeURIComponent(loginEmail)}`}>
+              Forgot Password?
+            </Link>
           </form>
         </Card>
       </section>

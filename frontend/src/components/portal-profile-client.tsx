@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Save, Trash2 } from "lucide-react";
@@ -367,6 +368,9 @@ export function PortalProfileClient() {
               <Button type="submit" disabled={loading || !loginEmail || !loginPassword}>
                 Sign in & load profile
               </Button>
+              <Link className="text-center font-semibold text-navy-700 underline underline-offset-4" href={`/assessment/forgot-password?email=${encodeURIComponent(loginEmail)}`}>
+                Forgot Password?
+              </Link>
             </form>
           )}
         </Card>

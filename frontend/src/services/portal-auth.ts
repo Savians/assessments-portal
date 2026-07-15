@@ -19,6 +19,10 @@ function userPool() {
   });
 }
 
+function cognitoUser(email: string) {
+  return new CognitoUser({ Username: email.trim().toLowerCase(), Pool: userPool() });
+}
+
 export function storePortalAccessToken(idToken: string) {
   window.localStorage.setItem(portalAccessTokenStorageKey, idToken);
 }
@@ -105,24 +109,103 @@ export class AssessmentAuthError extends Error {
 }
 
 export async function signInToPortal(input: { email: string; password: string }): Promise<{ accessToken: string }> {
-  const cognitoUser = new CognitoUser({
-    Username: input.email,
-    Pool: userPool()
-  });
+  const user = cognitoUser(input.email);
   const authenticationDetails = new AuthenticationDetails({
-    Username: input.email,
+    Username: input.email.trim().toLowerCase(),
     Password: input.password
   });
 
   return new Promise((resolve, reject) => {
-    cognitoUser.authenticateUser(authenticationDetails, {
+    user.authenticateUser(authenticationDetails, {
       onSuccess: (session: CognitoUserSession) => {
         const idToken = session.getIdToken().getJwtToken();
         storePortalAccessToken(idToken);
         resolve({ accessToken: idToken });
       },
       onFailure: (error) => {
-        reject(error instanceof Error ? error : new Error("We could not start your portal session."));
+        reject(new AssessmentAuthError(portalAuthErrorMessage(error, "We could not sign you in. Please check your email and password.")));
+      }
+    });
+  });
+}
+
+const errorName = (error: unknown) =>
+  typeof error === "object" && error !== null && "name" in error && typeof error.name === "string"
+    ? error.name
+    : "";
+
+function portalAuthErrorMessage(error: unknown, fallback: string): string {
+  switch (errorName(error)) {
+    case "NotAuthorizedException":
+    case "UserNotFoundException":
+      return "The email or password is incorrect.";
+    case "UserNotConfirmedException":
+      return "Please finish verifying your email before signing in.";
+    case "PasswordResetRequiredException":
+      return "A password reset is required before you can sign in.";
+    case "TooManyRequestsException":
+    case "LimitExceededException":
+      return "Too many attempts were made. Please wait a few minutes and try again.";
+    default:
+      return fallback;
+  }
+}
+
+const concealedPasswordResetErrors = new Set([
+  "UserNotFoundException",
+  "NotAuthorizedException",
+  "InvalidParameterException"
+]);
+
+/**
+ * Requests Cognito's single-use password reset code. User-existence errors are deliberately
+ * concealed so this public form cannot be used to discover registered client emails.
+ */
+export async function requestPortalPasswordReset(email: string): Promise<void> {
+  const user = cognitoUser(email);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const succeed = () => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    };
+    user.forgotPassword({
+      onSuccess: succeed,
+      inputVerificationCode: succeed,
+      onFailure: (error) => {
+        if (concealedPasswordResetErrors.has(errorName(error))) {
+          succeed();
+          return;
+        }
+        reject(new AssessmentAuthError(portalAuthErrorMessage(error, "We could not send a password reset code. Please try again.")));
+      }
+    });
+  });
+}
+
+export async function confirmPortalPasswordReset(input: {
+  email: string;
+  confirmationCode: string;
+  newPassword: string;
+}): Promise<void> {
+  const user = cognitoUser(input.email);
+  return new Promise((resolve, reject) => {
+    user.confirmPassword(input.confirmationCode.trim(), input.newPassword, {
+      onSuccess: () => resolve(),
+      onFailure: (error) => {
+        const name = errorName(error);
+        const message = name === "CodeMismatchException"
+          ? "That verification code is incorrect. Check the latest email and try again."
+          : name === "ExpiredCodeException"
+            ? "That verification code has expired. Request a new code and try again."
+            : name === "InvalidPasswordException"
+              ? "The new password does not meet the security requirements."
+              : name === "UserNotFoundException"
+                ? "That verification code is invalid or expired."
+                : portalAuthErrorMessage(error, "We could not reset your password. Please try again.");
+        reject(new AssessmentAuthError(message));
       }
     });
   });

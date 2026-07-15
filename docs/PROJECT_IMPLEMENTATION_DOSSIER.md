@@ -1249,3 +1249,6 @@ This section is updated after the external database and S3 operations finish.
   - frontend tests passed: 5/5;
   - local frontend dev server was restarted on port `3000`;
   - `HEAD http://localhost:3000/portal/documents` returned HTTP `200`.
+# Authentication recovery addendum
+
+The current forgot-password, verification-code resend, retry-safe confirmation, and returning-client account-linking behavior is documented in [AUTHENTICATION_RECOVERY.md](./AUTHENTICATION_RECOVERY.md).

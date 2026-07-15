@@ -85,6 +85,8 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
     cognitoUserId: string;
     inviteId: string;
     confirmedAt: Date;
+    verificationTokenHash?: string;
+    verificationType?: string;
   }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const client = await tx.assessmentClient.upsert({
@@ -98,6 +100,17 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
         data: { clientId: client.id, status: AssessmentStatus.ACCOUNT_CREATED }
       });
       await tx.accountInvite.update({ where: { id: input.inviteId }, data: { usedAt: input.confirmedAt } });
+      if (input.verificationTokenHash && input.verificationType) {
+        await tx.recoveryToken.updateMany({
+          where: {
+            sessionId: input.sessionId,
+            tokenHash: input.verificationTokenHash,
+            verificationType: input.verificationType,
+            usedAt: null
+          },
+          data: { usedAt: input.confirmedAt }
+        });
+      }
       if (current.status !== AssessmentStatus.ACCOUNT_CREATED) {
         await tx.assessmentStatusHistory.create({
           data: { sessionId: input.sessionId, oldStatus: current.status, newStatus: AssessmentStatus.ACCOUNT_CREATED, reason: "Cognito account confirmed and linked", actorType: "CLIENT" }
@@ -147,6 +160,18 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
         expiresAt: input.expiresAt
       }
     });
+  }
+
+  async findLatestAccountVerificationCodeCreatedAt(
+    sessionId: string,
+    verificationType: string
+  ): Promise<Date | null> {
+    const token = await this.prisma.recoveryToken.findFirst({
+      where: { sessionId, verificationType },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true }
+    });
+    return token?.createdAt ?? null;
   }
 
   async hasActiveAccountVerificationCode(input: {

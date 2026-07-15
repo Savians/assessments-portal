@@ -153,10 +153,12 @@ export async function startPaidAccountSetup(token: string): Promise<{ nextUrl: s
 }
 
 export interface AccountInviteDetails {
+  status: "INVITE_ACTIVE" | "ACCOUNT_CREATED";
   email: string;
   clientName: string;
   assessmentYear: number;
   expiresAt: string;
+  nextUrl: string | null;
 }
 
 export async function validateAccountInvite(inviteToken: string): Promise<AccountInviteDetails> {
@@ -168,13 +170,22 @@ export async function validateAccountInvite(inviteToken: string): Promise<Accoun
   return body as AccountInviteDetails;
 }
 
-export async function startAccountSetup(input: { inviteToken: string; password: string }): Promise<{ status: "CONFIRMATION_REQUIRED"; email: string }> {
+export async function startAccountSetup(input: { inviteToken: string; password: string }): Promise<{ status: "CONFIRMATION_REQUIRED" | "EXISTING_ACCOUNT"; email: string }> {
   const response = await fetch(`${apiBaseUrl()}/api/assessment/account/setup`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), cache: "no-store"
   });
-  const body = (await response.json()) as { status: "CONFIRMATION_REQUIRED"; email: string } | ApiErrorBody;
+  const body = (await response.json()) as { status: "CONFIRMATION_REQUIRED" | "EXISTING_ACCOUNT"; email: string } | ApiErrorBody;
   if (!response.ok) throw new AssessmentApiError((body as ApiErrorBody).message ?? "We could not start account setup.", (body as ApiErrorBody).issues);
-  return body as { status: "CONFIRMATION_REQUIRED"; email: string };
+  return body as { status: "CONFIRMATION_REQUIRED" | "EXISTING_ACCOUNT"; email: string };
+}
+
+export async function resendAccountVerificationCode(inviteToken: string): Promise<{ ok: true; retryAfterSeconds: number }> {
+  const response = await fetch(`${apiBaseUrl()}/api/assessment/account/verification/resend`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ inviteToken }), cache: "no-store"
+  });
+  const body = (await response.json()) as { ok: true; retryAfterSeconds: number } | ApiErrorBody;
+  if (!response.ok) throw new AssessmentApiError((body as ApiErrorBody).message ?? "We could not resend the verification code.");
+  return body as { ok: true; retryAfterSeconds: number };
 }
 
 export async function confirmAccountSetup(input: { inviteToken: string; confirmationCode: string }): Promise<{ status: "ACCOUNT_CREATED"; nextUrl: string }> {
@@ -183,6 +194,18 @@ export async function confirmAccountSetup(input: { inviteToken: string; confirma
   });
   const body = (await response.json()) as { status: "ACCOUNT_CREATED"; nextUrl: string } | ApiErrorBody;
   if (!response.ok) throw new AssessmentApiError((body as ApiErrorBody).message ?? "We could not confirm account setup.", (body as ApiErrorBody).issues);
+  return body as { status: "ACCOUNT_CREATED"; nextUrl: string };
+}
+
+export async function claimExistingAccount(input: { inviteToken: string; accessToken: string }): Promise<{ status: "ACCOUNT_CREATED"; nextUrl: string }> {
+  const response = await fetch(`${apiBaseUrl()}/api/assessment/account/existing/claim`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${input.accessToken}` },
+    body: JSON.stringify({ inviteToken: input.inviteToken }),
+    cache: "no-store"
+  });
+  const body = (await response.json()) as { status: "ACCOUNT_CREATED"; nextUrl: string } | ApiErrorBody;
+  if (!response.ok) throw new AssessmentApiError((body as ApiErrorBody).message ?? "We could not connect this assessment to your existing account.");
   return body as { status: "ACCOUNT_CREATED"; nextUrl: string };
 }
 
