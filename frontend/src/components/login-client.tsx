@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { LogIn, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, LogIn, ShieldCheck } from "lucide-react";
 import { Button, Card, ErrorAlert, Input, LoadingOverlay, StatusBadge } from "@/components/ui";
 import { getCurrentPortalAccessToken, getPortalIdentity, routeForPortalRole, signInToPortal } from "@/services/portal-auth";
 
@@ -11,6 +11,7 @@ export function LoginClient() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +50,30 @@ export function LoginClient() {
         {error ? <div className="mt-5"><ErrorAlert>{error}</ErrorAlert></div> : null}
         <form className="mt-6 grid gap-4" onSubmit={submit}>
           <Input label="Email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required />
-          <Input label="Password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <div className="grid gap-2 text-sm font-medium text-slate-700">
+            <label htmlFor="login-password">Password</label>
+            <div className="relative">
+              <input
+                id="login-password"
+                className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 pr-12 text-base text-slate-900"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="focus-ring absolute inset-y-0 right-1 my-1 grid w-10 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-navy-800"
+                onClick={() => setShowPassword((current) => !current)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff aria-hidden size={19} /> : <Eye aria-hidden size={19} />}
+              </button>
+            </div>
+          </div>
           <Button type="submit" disabled={submitting}><LogIn aria-hidden size={17} />{submitting ? "Signing In..." : "Sign In"}</Button>
         </form>
         <div className="mt-5 flex flex-wrap justify-between gap-3 text-sm">
