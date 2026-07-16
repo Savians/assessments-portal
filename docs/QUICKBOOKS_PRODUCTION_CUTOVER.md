@@ -79,4 +79,4 @@ Never copy development credentials, realm IDs, refresh tokens, item IDs, or veri
 - Reconciliation: enabled every 15 minutes
 - The service-item check selected the active production `Tax Assessment Plan` item with the expected USD 2,997 price.
 
-The production verifier token must be copied from Intuit **Webhooks -> Production** after saving the deployed endpoint, then synced with `npm run secrets:sync:production`.
+The production verifier token was configured and synced on 2026-07-17. A signed empty/non-financial webhook probe returned `200`, while an intentionally invalid signature returned `401`.

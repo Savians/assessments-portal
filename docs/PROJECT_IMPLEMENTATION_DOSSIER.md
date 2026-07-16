@@ -1279,4 +1279,6 @@ The current forgot-password, verification-code resend, retry-safe confirmation, 
 - Preserved the core money boundary: account access unlocks only after the stored QuickBooks invoice is re-fetched and its invoice ID, USD currency, expected total, and zero balance all match.
 - Removed production Lambda reserved concurrency because the account quota could not satisfy a second stack while retaining AWS's mandatory unreserved pool. Production now uses shared account concurrency.
 - Changed production Lambda removal policy to destroy stateless code on a failed stack create, while durable KMS/data resources remain retained, preventing fixed-name orphan conflicts during safe deployment retries.
-- Remaining cutover action: configure the production webhook in Intuit, sync its verifier token, run a signed webhook test, then switch Amplify's API/client environment variables and perform one explicitly approved real-money acceptance transaction.
+- Configured the production webhook in Intuit, synced its verifier token, and verified a signed empty/non-financial probe returns `200` while an invalid signature returns `401`.
+- Switched Amplify to the production API and Cognito app client. The live bundles contain the production values and neither staging value; `/`, `/login`, and `/assessment/start` return `200`.
+- Amplify production job 16 succeeded. The only remaining financial acceptance action is one explicitly approved real-money transaction; no automated test created an invoice or charged money.
