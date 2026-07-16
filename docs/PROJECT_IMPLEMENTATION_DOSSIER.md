@@ -1252,3 +1252,12 @@ This section is updated after the external database and S3 operations finish.
 # Authentication recovery addendum
 
 The current forgot-password, verification-code resend, retry-safe confirmation, and returning-client account-linking behavior is documented in [AUTHENTICATION_RECOVERY.md](./AUTHENTICATION_RECOVERY.md).
+
+## 43. Shared-identity assessment administration (2026-07-16)
+
+- Added the assessment admin portal described in [ADMIN_PORTAL.md](./ADMIN_PORTAL.md).
+- Reused the referral portal Cognito user pool and its `Admin`/`superadmin` groups; no duplicate admin identity was created.
+- Added one role-aware `/login` route for both assessment clients and administrators.
+- Added an organized admin overview, paginated client management, global document search, client workspaces, full intake editing, audited document previews, and controlled In Progress/Completed status transitions.
+- Added assessment-only migration `0005_admin_workflow_statuses.sql`; it remains separate from referral migrations.
+- Preserved signed legal evidence, verified payment fields, QuickBooks identifiers, and historical audit data as immutable operational records.

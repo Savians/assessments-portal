@@ -25,7 +25,7 @@ export async function assertPaidPortalEntitlement(prisma: PrismaClient, claims: 
         where: {
           normalizedEmail: normalizeEmail(claims.email),
           accountCreationAllowed: true,
-          status: { in: [AssessmentStatus.ACCOUNT_CREATED, AssessmentStatus.PROFILE_IN_PROGRESS, AssessmentStatus.PROFILE_COMPLETED, AssessmentStatus.DOCUMENTS_IN_PROGRESS, AssessmentStatus.DOCUMENTS_SUBMITTED] }
+          status: { in: [AssessmentStatus.ACCOUNT_CREATED, AssessmentStatus.PROFILE_IN_PROGRESS, AssessmentStatus.PROFILE_COMPLETED, AssessmentStatus.DOCUMENTS_IN_PROGRESS, AssessmentStatus.DOCUMENTS_SUBMITTED, AssessmentStatus.IN_PROGRESS, AssessmentStatus.COMPLETED] }
         },
         orderBy: { assessmentYear: "desc" },
         take: 1

@@ -17,6 +17,8 @@ export type AuthSessionStatus =
   | "PROFILE_COMPLETED"
   | "DOCUMENTS_IN_PROGRESS"
   | "DOCUMENTS_SUBMITTED"
+  | "IN_PROGRESS"
+  | "COMPLETED"
   | "ERROR";
 
 export interface PaidSession {
@@ -140,7 +142,9 @@ const completedAccountStatuses: AuthSessionStatus[] = [
   "PROFILE_IN_PROGRESS",
   "PROFILE_COMPLETED",
   "DOCUMENTS_IN_PROGRESS",
-  "DOCUMENTS_SUBMITTED"
+  "DOCUMENTS_SUBMITTED",
+  "IN_PROGRESS",
+  "COMPLETED"
 ];
 
 export class AccountAuthService {

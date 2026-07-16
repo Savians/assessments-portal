@@ -16,6 +16,8 @@ export type PaymentSessionStatus =
   | "PROFILE_COMPLETED"
   | "DOCUMENTS_IN_PROGRESS"
   | "DOCUMENTS_SUBMITTED"
+  | "IN_PROGRESS"
+  | "COMPLETED"
   | "ERROR";
 
 export interface PaymentSession {

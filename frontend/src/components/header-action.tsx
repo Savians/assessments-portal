@@ -11,7 +11,7 @@ export function HeaderAction() {
   return (
     <Link
       className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-navy-800 bg-white px-3 py-2 text-sm font-semibold text-navy-800 transition hover:bg-navy-50 sm:px-4"
-      href={isHomePage ? "/assessment/recover" : "/"}
+      href={isHomePage ? "/login" : "/"}
       aria-label={isHomePage ? "Login or resume assessment" : "Back to Savians Assessments home"}
     >
       {isHomePage ? <LogIn aria-hidden size={17} /> : <ArrowLeft aria-hidden size={17} />}

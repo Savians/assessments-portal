@@ -34,6 +34,7 @@ type ServiceName =
   | "quickbooks"
   | "payment"
   | "auth"
+  | "admin"
   | "portal"
   | "documents"
   | "notifications"
@@ -65,6 +66,16 @@ const routes: RouteDefinition[] = [
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/password-reset/request", authenticated: false },
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/password-reset/confirm", authenticated: false },
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/existing/claim", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.GET, path: "/api/assessment/admin/overview", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.GET, path: "/api/assessment/admin/clients", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.GET, path: "/api/assessment/admin/clients/{sessionId}", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.PUT, path: "/api/assessment/admin/clients/{sessionId}/identity", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.PUT, path: "/api/assessment/admin/clients/{sessionId}/profile", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.PUT, path: "/api/assessment/admin/clients/{sessionId}/properties", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.PUT, path: "/api/assessment/admin/clients/{sessionId}/business-investments", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.PUT, path: "/api/assessment/admin/clients/{sessionId}/status", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.GET, path: "/api/assessment/admin/documents", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.GET, path: "/api/assessment/admin/documents/{documentId}/preview-url", authenticated: true },
   { service: "portal", method: apigwv2.HttpMethod.GET, path: "/api/assessment/portal/dashboard", authenticated: true },
   { service: "portal", method: apigwv2.HttpMethod.GET, path: "/api/assessment/portal/profile", authenticated: true },
   { service: "portal", method: apigwv2.HttpMethod.POST, path: "/api/assessment/portal/profile", authenticated: true },
@@ -80,7 +91,7 @@ const routes: RouteDefinition[] = [
 ];
 
 const services: ServiceName[] = [
-  "public", "agreement", "quickbooks", "payment", "auth",
+  "public", "agreement", "quickbooks", "payment", "auth", "admin",
   "portal", "documents", "notifications", "webhook", "scheduler"
 ];
 
@@ -228,6 +239,8 @@ export class AssessmentStack extends Stack {
                     ? "../../src/services/auth/handler.ts"
                     : service === "portal"
                       ? "../../src/services/portal/handler.ts"
+                      : service === "admin"
+                        ? "../../src/services/admin/handler.ts"
                       : service === "documents"
                         ? "../../src/services/documents/handler.ts"
                   : service === "webhook"
@@ -239,7 +252,7 @@ export class AssessmentStack extends Stack {
         handler: "handler",
         runtime: lambda.Runtime.NODEJS_20_X,
         architecture: lambda.Architecture.ARM_64,
-        memorySize: service === "portal" || service === "documents" ? 1024 : 512,
+        memorySize: service === "portal" || service === "documents" || service === "admin" ? 1024 : 512,
         timeout: service === "webhook" ? Duration.seconds(15) : Duration.seconds(30),
         tracing: lambda.Tracing.ACTIVE,
         reservedConcurrentExecutions: props.environmentName === "production" && service === "agreement" ? 1 : undefined,
@@ -294,6 +307,10 @@ export class AssessmentStack extends Stack {
             conditions: { StringLike: { "s3:prefix": ["assessments/*"] } }
           })
         );
+      }
+      if (service === "admin") {
+        fn.addToRolePolicy(new iam.PolicyStatement({ actions: ["s3:GetObject"], resources: [documentsBucket.arnForObjects("assessments/*")] }));
+        fn.addToRolePolicy(new iam.PolicyStatement({ actions: ["cognito-idp:AdminUpdateUserAttributes"], resources: [userPool.userPoolArn] }));
       }
       if (service === "auth") {
         fn.addToRolePolicy(new iam.PolicyStatement({

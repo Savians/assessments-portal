@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BriefcaseBusiness, Building2, CheckCircle2, ChevronRight, FileUp, LogOut, Plus, Save, Send, Trash2, UserRound } from "lucide-react";
@@ -21,7 +22,7 @@ import {
   type ResidentStatus,
   type SavePortalProfileRequest
 } from "@/services/assessment-api";
-import { clearStoredPortalAccessToken, getCurrentPortalAccessToken, signInToPortal, signOutFromPortal } from "@/services/portal-auth";
+import { clearStoredPortalAccessToken, getCurrentPortalAccessToken, getPortalIdentity, signOutFromPortal } from "@/services/portal-auth";
 import { Button, Card, ErrorAlert, Input, LoadingOverlay, Select, StatusBadge, cn } from "@/components/ui";
 import { PortalDocumentsClient } from "@/components/portal-documents-client";
 
@@ -262,7 +263,8 @@ function StatusPill({ label }: { label: string }) {
   return <StatusBadge status={status}>{label}</StatusBadge>;
 }
 
-export function PortalDashboardClient({ initialEmail = "" }: { initialEmail?: string }) {
+export function PortalDashboardClient() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<DashboardTab>("personal");
   const [accessToken, setAccessToken] = useState("");
   const [dashboard, setDashboard] = useState<PortalDashboardResponse | null>(null);
@@ -271,8 +273,6 @@ export function PortalDashboardClient({ initialEmail = "" }: { initialEmail?: st
   const [businessInvestments, setBusinessInvestments] = useState<PortalBusinessInvestment[]>([]);
   const [selectedPropertyIndex, setSelectedPropertyIndex] = useState<number | null>(null);
   const [selectedBusinessIndex, setSelectedBusinessIndex] = useState<number | null>(null);
-  const [loginEmail, setLoginEmail] = useState(initialEmail.trim().toLowerCase());
-  const [loginPassword, setLoginPassword] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [readySubmitting, setReadySubmitting] = useState(false);
@@ -284,7 +284,7 @@ export function PortalDashboardClient({ initialEmail = "" }: { initialEmail?: st
   const assessmentYear = dashboard?.assessmentYear ?? new Date().getFullYear();
   const incomeHistoryYears = [assessmentYear - 3, assessmentYear - 2, assessmentYear - 1];
   const isMarried = profileDraft.profile.maritalStatus === "MARRIED";
-  const canMarkReady = dashboard?.assessmentStatus.label !== "Ready for Review";
+  const canMarkReady = !["Ready for Review", "In Progress", "Completed"].includes(dashboard?.assessmentStatus.label ?? "");
   const selectedProperty = selectedPropertyIndex === null ? null : properties[selectedPropertyIndex] ?? null;
   const selectedBusiness = selectedBusinessIndex === null ? null : businessInvestments[selectedBusinessIndex] ?? null;
 
@@ -315,13 +315,14 @@ export function PortalDashboardClient({ initialEmail = "" }: { initialEmail?: st
 
   useEffect(() => {
     getCurrentPortalAccessToken().then((token) => {
-      if (token) void loadDashboard(token);
+      if (token && ["ADMIN", "SUPER_ADMIN"].includes(getPortalIdentity(token).role)) router.replace("/admin/dashboard");
+      else if (token) void loadDashboard(token);
       else {
         setMessage("Sign in with the Savians account created after payment to open your dashboard.");
         setLoading(false);
       }
     });
-  }, [loadDashboard]);
+  }, [loadDashboard, router]);
 
   const tabCompletion = useMemo(() => ({
     personal: dashboard?.completion.status === "COMPLETE",
@@ -329,20 +330,6 @@ export function PortalDashboardClient({ initialEmail = "" }: { initialEmail?: st
     business: businessInvestments.length > 0 || profileDraft.profile.ownsBusiness === false,
     documents: (dashboard?.documentSummary.uploadedCount ?? 0) > 0
   }), [businessInvestments.length, dashboard?.completion.status, dashboard?.documentSummary.uploadedCount, profileDraft.profile.ownsBusiness, profileDraft.profile.ownsRealEstate, properties.length]);
-
-  async function handleSignIn(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const session = await signInToPortal({ email: loginEmail, password: loginPassword });
-      await loadDashboard(session.accessToken);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "We could not sign you in.");
-      setLoading(false);
-    }
-  }
 
   async function handleProfileSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -422,7 +409,6 @@ export function PortalDashboardClient({ initialEmail = "" }: { initialEmail?: st
     setBusinessInvestments([]);
     setSelectedPropertyIndex(null);
     setSelectedBusinessIndex(null);
-    setLoginPassword("");
     setError(null);
     setIssues([]);
     setMessage("You have been signed out.");
@@ -481,14 +467,7 @@ export function PortalDashboardClient({ initialEmail = "" }: { initialEmail?: st
           <p className="mt-3 text-slate-600">Use the email and password created after payment verification.</p>
           {error ? <div className="mt-5"><ErrorAlert>{error}</ErrorAlert></div> : null}
           {message ? <p className="mt-5 rounded-xl bg-blue-50 p-4 text-sm text-blue-900">{message}</p> : null}
-          <form className="mt-6 grid gap-4" onSubmit={handleSignIn}>
-            <Input label="Email" type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required />
-            <Input label="Password" type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} required />
-            <Button type="submit">Sign In & Open Dashboard</Button>
-            <Link className="text-center text-sm font-semibold text-navy-700 underline underline-offset-4" href={`/assessment/forgot-password?email=${encodeURIComponent(loginEmail)}`}>
-              Forgot Password?
-            </Link>
-          </form>
+          <Link className="focus-ring mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-lg bg-navy-800 px-5 py-3 font-bold text-white" href="/login">Open Secure Sign In</Link>
         </Card>
       </section>
     );
@@ -511,14 +490,14 @@ export function PortalDashboardClient({ initialEmail = "" }: { initialEmail?: st
               <StatusPill label={dashboard.assessmentStatus.label} />
               <Button type="button" onClick={handleReadyForReview} disabled={readySubmitting || !canMarkReady}>
                 <Send aria-hidden size={16} />
-                {dashboard.assessmentStatus.label === "Ready for Review" ? "Ready For Review" : "Mark The Assessment Ready For Review"}
+                {canMarkReady ? "Mark The Assessment Ready For Review" : dashboard.assessmentStatus.label}
               </Button>
               <Button type="button" variant="outline" onClick={handleSignOut} disabled={saving || readySubmitting}>
                 <LogOut aria-hidden size={16} />
                 Logout
               </Button>
             </div>
-            {dashboard.assessmentStatus.label !== "Ready for Review" ? (
+            {canMarkReady ? (
               <p className="max-w-md text-left text-xs leading-5 text-slate-500 sm:text-right">
                 Once you&apos;re done uploading all required documents, click <span className="font-semibold text-navy-800">Mark The Assessment Ready For Review</span>.
               </p>

@@ -8,6 +8,9 @@ import { confirmAssessmentPasswordReset, requestAssessmentPasswordReset } from "
 
 export const portalAccessTokenStorageKey = "saviansAssessmentAccessToken";
 
+export type PortalRole = "SUPER_ADMIN" | "ADMIN" | "ASSESSMENT_CLIENT" | "UNKNOWN";
+export interface PortalIdentity { sub: string; email: string; role: PortalRole; groups: string[]; }
+
 const requiredEnv = (name: string, value: string | undefined) => {
   if (!value) throw new Error(`${name} is not configured.`);
   return value;
@@ -84,6 +87,34 @@ function hasEmailClaim(token: string): boolean {
   }
 }
 
+function decodeTokenPayload(token: string): Record<string, unknown> {
+  const payload = token.split(".")[1];
+  if (!payload) throw new Error("Invalid portal token.");
+  const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+  return JSON.parse(window.atob(padded)) as Record<string, unknown>;
+}
+
+export function getPortalIdentity(token: string): PortalIdentity {
+  const payload = decodeTokenPayload(token);
+  const rawGroups = payload["cognito:groups"];
+  const groups = Array.isArray(rawGroups) ? rawGroups.filter((value): value is string => typeof value === "string") : [];
+  const role: PortalRole = groups.includes("superadmin") || groups.includes("SuperAdmin")
+    ? "SUPER_ADMIN"
+    : groups.includes("Admin") || groups.includes("Finance")
+      ? "ADMIN"
+      : groups.includes("ASSESSMENT_CLIENT")
+        ? "ASSESSMENT_CLIENT"
+        : "UNKNOWN";
+  return { sub: typeof payload.sub === "string" ? payload.sub : "", email: typeof payload.email === "string" ? payload.email : "", role, groups };
+}
+
+export function routeForPortalRole(role: PortalRole) {
+  if (role === "ADMIN" || role === "SUPER_ADMIN") return "/admin/dashboard";
+  if (role === "ASSESSMENT_CLIENT") return "/portal/dashboard";
+  return "/login";
+}
+
 function isTokenExpired(token: string): boolean {
   try {
     const payload = token.split(".")[1];
@@ -109,7 +140,7 @@ export class AssessmentAuthError extends Error {
   }
 }
 
-export async function signInToPortal(input: { email: string; password: string }): Promise<{ accessToken: string }> {
+export async function signInToPortal(input: { email: string; password: string }): Promise<{ accessToken: string; identity: PortalIdentity }> {
   const user = cognitoUser(input.email);
   const authenticationDetails = new AuthenticationDetails({
     Username: input.email.trim().toLowerCase(),
@@ -121,7 +152,7 @@ export async function signInToPortal(input: { email: string; password: string })
       onSuccess: (session: CognitoUserSession) => {
         const idToken = session.getIdToken().getJwtToken();
         storePortalAccessToken(idToken);
-        resolve({ accessToken: idToken });
+        resolve({ accessToken: idToken, identity: getPortalIdentity(idToken) });
       },
       onFailure: (error) => {
         reject(new AssessmentAuthError(portalAuthErrorMessage(error, "We could not sign you in. Please check your email and password.")));

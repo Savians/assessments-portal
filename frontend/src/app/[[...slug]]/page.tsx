@@ -73,7 +73,7 @@ function LandingPage() {
               </Link>
               <Link
                 className="focus-ring inline-flex min-h-12 items-center gap-2 rounded-lg border border-white/25 px-6 py-3 font-bold text-white hover:bg-white/10"
-                href="/assessment/recover"
+                href="/login"
               >
                 Sign In / Resume
               </Link>
@@ -183,7 +183,7 @@ function LandingPage() {
           </Link>
           <Link
             className="focus-ring inline-flex min-h-12 items-center gap-2 rounded-lg border border-navy-800 px-6 py-3 font-bold text-navy-800"
-            href="/assessment/recover"
+            href="/login"
           >
             Sign In / Resume
           </Link>

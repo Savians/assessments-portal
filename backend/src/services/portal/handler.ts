@@ -81,6 +81,8 @@ const businessInvestmentsRequestSchema = z.object({ businessInvestments: z.array
 function publicAssessmentStatus(status: AssessmentStatus) {
   if (status === AssessmentStatus.PAYMENT_PENDING || status === AssessmentStatus.PAYMENT_VERIFYING) return "Payment Pending";
   if (status === AssessmentStatus.DOCUMENTS_SUBMITTED) return "Ready for Review";
+  if (status === AssessmentStatus.IN_PROGRESS) return "In Progress";
+  if (status === AssessmentStatus.COMPLETED) return "Completed";
   return "Pending Uploads";
 }
 

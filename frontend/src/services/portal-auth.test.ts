@@ -14,7 +14,9 @@ vi.mock("amazon-cognito-identity-js", () => ({
   }
 }));
 
-import { confirmPortalPasswordReset, requestPortalPasswordReset } from "./portal-auth";
+import { confirmPortalPasswordReset, getPortalIdentity, requestPortalPasswordReset, routeForPortalRole } from "./portal-auth";
+
+const token = (payload: object) => `header.${btoa(JSON.stringify(payload)).replaceAll("=", "").replaceAll("+", "-").replaceAll("/", "_")}.signature`;
 
 describe("portal password recovery", () => {
   beforeEach(() => {
@@ -51,5 +53,19 @@ describe("portal password recovery", () => {
       confirmationCode: "00000000",
       newPassword: "SecurePassword123!"
     })).rejects.toThrow("invalid or expired");
+  });
+});
+
+describe("shared Cognito role routing", () => {
+  it("routes referral admins to assessment administration", () => {
+    const identity = getPortalIdentity(token({ sub: "admin-1", email: "admin@savians.com", "cognito:groups": ["Admin"] }));
+    expect(identity.role).toBe("ADMIN");
+    expect(routeForPortalRole(identity.role)).toBe("/admin/dashboard");
+  });
+
+  it("routes assessment clients to their client dashboard", () => {
+    const identity = getPortalIdentity(token({ sub: "client-1", email: "client@example.com", "cognito:groups": ["ASSESSMENT_CLIENT"] }));
+    expect(identity.role).toBe("ASSESSMENT_CLIENT");
+    expect(routeForPortalRole(identity.role)).toBe("/portal/dashboard");
   });
 });
