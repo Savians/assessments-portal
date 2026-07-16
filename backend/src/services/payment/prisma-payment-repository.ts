@@ -122,4 +122,20 @@ export class PrismaPaymentRepository implements PaymentRepository {
       }
     });
   }
+
+  async findLatestPaymentSupportRequestAt(sessionId: string): Promise<Date | null> {
+    const latest = await this.prisma.emailEvent.findFirst({
+      where: { sessionId, templateKey: "PAYMENT_SUPPORT_REQUEST", status: DeliveryStatus.SENT, sentAt: { not: null } },
+      orderBy: { sentAt: "desc" },
+      select: { sentAt: true }
+    });
+    return latest?.sentAt ?? null;
+  }
+
+  async recordPaymentSupportRequest(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED"; failureReason?: string; sentAt: Date }): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.emailEvent.create({ data: { sessionId: input.sessionId, templateKey: "PAYMENT_SUPPORT_REQUEST", recipientEmail: input.recipientEmail, status: DeliveryStatus[input.status], failureReason: input.failureReason, sentAt: input.status === "SENT" ? input.sentAt : undefined } }),
+      this.prisma.auditLog.create({ data: { sessionId: input.sessionId, action: input.status === "SENT" ? "PAYMENT_SUPPORT_REQUESTED" : "PAYMENT_SUPPORT_NOTIFICATION_FAILED", entityType: "ASSESSMENT_SESSION", entityId: input.sessionId, actorType: "CLIENT", metadata: input.failureReason ? { failureReason: input.failureReason.slice(0, 500) } : undefined } })
+    ]);
+  }
 }

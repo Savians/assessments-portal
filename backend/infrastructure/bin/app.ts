@@ -27,10 +27,6 @@ const kmsKeyId =
     ? configuredKmsKeyId
     : undefined;
 
-if (environmentName === "production" && !kmsKeyId) {
-  throw new Error("Production requires a valid existing KMS_KEY_ID");
-}
-
 const app = new App();
 
 new AssessmentStack(app, "SaviansAssessment-" + environmentName, {

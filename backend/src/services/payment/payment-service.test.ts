@@ -18,7 +18,7 @@ class Repo implements PaymentRepository {
     qbInvoiceBalance: 2997,
     accountCreationAllowed: false
   };
-  stillOpen = 0; paid = 0; failed = 0; emails = 0; latestEmailSentAt: Date | null = null;
+  stillOpen = 0; paid = 0; failed = 0; emails = 0; supportRequests = 0; latestEmailSentAt: Date | null = null; latestSupportAt: Date | null = null;
   async findSessionByTokenHash() { return this.session; }
   async findSessionByInvoiceId(invoiceId: string) { return invoiceId === this.session.qbInvoiceId ? this.session : null; }
   async findOpenInvoiceSessions() { return [this.session]; }
@@ -27,6 +27,8 @@ class Repo implements PaymentRepository {
   async recordVerificationFailure() { this.failed++; }
   async findLatestInvoiceStatusEmailSentAt() { return this.latestEmailSentAt; }
   async recordInvoiceStatusEmail() { this.emails++; }
+  async findLatestPaymentSupportRequestAt() { return this.latestSupportAt; }
+  async recordPaymentSupportRequest() { this.supportRequests++; }
 }
 
 class Qbo implements InvoiceStatusGateway {
@@ -40,8 +42,9 @@ const token = "a".repeat(43);
 const build = () => {
   const repo = new Repo();
   const qbo = new Qbo();
-  const service = new PaymentStatusService(repo, qbo, { send: async () => undefined }, "https://assessments.savians.com", () => new Date("2026-07-05T12:00:00Z"));
-  return { repo, qbo, service };
+  let supportNotices = 0;
+  const service = new PaymentStatusService(repo, qbo, { send: async () => undefined, sendPaymentSupport: async () => { supportNotices++; } }, "https://assessments.savians.com", () => new Date("2026-07-05T12:00:00Z"));
+  return { repo, qbo, service, supportNotices: () => supportNotices };
 };
 
 describe("PaymentStatusService", () => {
@@ -91,5 +94,20 @@ describe("PaymentStatusService", () => {
     repo.latestEmailSentAt = null;
     await expect(service.resendInvoiceEmail(token)).resolves.toEqual({ ok: true, retryAfterSeconds: 60 });
     expect(qbo.sends).toBe(1);
+  });
+
+  it("notifies Savians about an open payment without unlocking access", async () => {
+    const { repo, service, supportNotices } = build();
+    await expect(service.requestPaymentSupport(token)).resolves.toEqual({ ok: true, retryAfterSeconds: 600 });
+    expect(supportNotices()).toBe(1);
+    expect(repo.supportRequests).toBe(1);
+    expect(repo.session.accountCreationAllowed).toBe(false);
+  });
+
+  it("rate-limits duplicate payment support requests", async () => {
+    const { repo, service, supportNotices } = build();
+    repo.latestSupportAt = new Date("2026-07-05T11:55:00Z");
+    await expect(service.requestPaymentSupport(token)).rejects.toMatchObject({ code: "PAYMENT_SUPPORT_RATE_LIMITED", retryAfterSeconds: 300 });
+    expect(supportNotices()).toBe(0);
   });
 });

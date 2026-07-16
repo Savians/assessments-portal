@@ -54,6 +54,14 @@ export interface PaymentRepository {
     failureReason?: string;
     sentAt: Date;
   }): Promise<void>;
+  findLatestPaymentSupportRequestAt(sessionId: string): Promise<Date | null>;
+  recordPaymentSupportRequest(input: {
+    sessionId: string;
+    recipientEmail: string;
+    status: "SENT" | "FAILED";
+    failureReason?: string;
+    sentAt: Date;
+  }): Promise<void>;
 }
 
 export interface InvoiceStatusGateway {
@@ -61,8 +69,9 @@ export interface InvoiceStatusGateway {
   sendInvoice(invoiceId: string, email: string, requestId: string): Promise<void>;
 }
 
-export interface InvoiceStatusNotifier {
+export interface PaymentNotifier {
   send(input: { sessionId: string; email: string; firstName: string; invoiceNumber?: string; amount: number; statusUrl: string }): Promise<void>;
+  sendPaymentSupport(input: { sessionId: string; email: string; firstName: string; phone: string; assessmentYear: number; invoiceNumber?: string; balance?: number | null; amount: number; statusUrl: string }): Promise<void>;
 }
 
 export class PaymentFlowError extends Error {
@@ -75,12 +84,13 @@ const hashStatusToken = (token: string) => createHash("sha256").update(token).di
 const requestId = (kind: string, sessionId: string) => createHash("sha256").update(`${kind}:${sessionId}`).digest("hex").slice(0, 50);
 const moneyEquals = (left: number | undefined, right: number) => Math.round((left ?? Number.NaN) * 100) === Math.round(right * 100);
 export const INVOICE_RESEND_COOLDOWN_SECONDS = 60;
+export const PAYMENT_SUPPORT_COOLDOWN_SECONDS = 600;
 
 export class PaymentStatusService {
   constructor(
     private readonly repository: PaymentRepository,
     private readonly quickBooks: InvoiceStatusGateway,
-    private readonly notifier: InvoiceStatusNotifier,
+    private readonly notifier: PaymentNotifier,
     private readonly frontendUrl: string,
     private readonly now: () => Date = () => new Date()
   ) {}
@@ -126,6 +136,36 @@ export class PaymentStatusService {
       throw new PaymentFlowError("RESEND_EMAIL_FAILED", "QuickBooks was asked to resend the invoice, but the Savians status email failed.", 502);
     }
     return { ok: true, retryAfterSeconds: INVOICE_RESEND_COOLDOWN_SECONDS };
+  }
+
+  async requestPaymentSupport(token: string) {
+    const session = await this.resolveToken(token);
+    if (!session.qbInvoiceId || !["PAYMENT_PENDING", "PAYMENT_VERIFYING"].includes(session.status)) {
+      throw new PaymentFlowError("PAYMENT_SUPPORT_NOT_AVAILABLE", "Payment support is available while a QuickBooks invoice is awaiting payment.", 409);
+    }
+    const latest = await this.repository.findLatestPaymentSupportRequestAt(session.id);
+    if (latest) {
+      const availableAt = new Date(latest.getTime() + PAYMENT_SUPPORT_COOLDOWN_SECONDS * 1000);
+      if (availableAt.getTime() > this.now().getTime()) {
+        const retryAfterSeconds = Math.max(1, Math.ceil((availableAt.getTime() - this.now().getTime()) / 1000));
+        throw new PaymentFlowError("PAYMENT_SUPPORT_RATE_LIMITED", `Savians was already notified. You can send another request in ${retryAfterSeconds} seconds.`, 429, retryAfterSeconds);
+      }
+    }
+    const statusUrl = `${this.frontendUrl.replace(/\/$/, "")}/assessment/status/${token}`;
+    const recipientEmail = "contactus@savians.com";
+    try {
+      await this.notifier.sendPaymentSupport({
+        sessionId: session.id, email: session.normalizedEmail, firstName: session.firstName,
+        phone: session.phone, assessmentYear: session.assessmentYear, invoiceNumber: session.qbInvoiceNumber ?? undefined,
+        balance: session.qbInvoiceBalance, amount: session.serviceAmount, statusUrl
+      });
+      await this.repository.recordPaymentSupportRequest({ sessionId: session.id, recipientEmail, status: "SENT", sentAt: this.now() });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown payment support notification error";
+      await this.repository.recordPaymentSupportRequest({ sessionId: session.id, recipientEmail, status: "FAILED", failureReason: message, sentAt: this.now() });
+      throw new PaymentFlowError("PAYMENT_SUPPORT_EMAIL_FAILED", "We could not notify Savians automatically. Please email contactus@savians.com.", 502);
+    }
+    return { ok: true, retryAfterSeconds: PAYMENT_SUPPORT_COOLDOWN_SECONDS };
   }
 
   async reconcileInvoiceId(invoiceId: string): Promise<PaymentSession | null> {

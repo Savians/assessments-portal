@@ -11,6 +11,13 @@ const FILE_PATTERN = /^(\d{4})_([a-z0-9_]+)\.sql$/;
 type AppliedMigration = { version: string; name: string; checksum: string; applied_at: Date };
 type Migration = { version: string; name: string; fileName: string; checksum: string; sql: string };
 
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error("DATABASE_URL is required");
+const targetSchema = new URL(databaseUrl).searchParams.get("schema") ?? "public";
+if (!/^[a-z_][a-z0-9_]*$/i.test(targetSchema)) throw new Error("DATABASE_URL contains an invalid PostgreSQL schema name");
+const quotedSchema = `"${targetSchema.replace(/"/g, '""')}"`;
+const qualifiedLedger = `${quotedSchema}."${LEDGER}"`;
+
 async function loadMigrations(): Promise<Migration[]> {
   const fileNames = (await readdir(MIGRATIONS_DIR)).filter((file) => FILE_PATTERN.test(file)).sort();
   const seen = new Set<string>(); const migrations: Migration[] = [];
@@ -26,9 +33,9 @@ async function loadMigrations(): Promise<Migration[]> {
 }
 
 async function readApplied(prisma: PrismaClient): Promise<AppliedMigration[]> {
-  const exists = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>("SELECT to_regclass('public.assessment_schema_migrations') IS NOT NULL AS exists");
+  const exists = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>(`SELECT to_regclass('${targetSchema}.${LEDGER}') IS NOT NULL AS exists`);
   if (!exists[0]?.exists) return [];
-  return prisma.$queryRawUnsafe<AppliedMigration[]>(`SELECT version, name, checksum, applied_at FROM ${LEDGER} ORDER BY version`);
+  return prisma.$queryRawUnsafe<AppliedMigration[]>(`SELECT version, name, checksum, applied_at FROM ${qualifiedLedger} ORDER BY version`);
 }
 function verifyHistory(local: Migration[], applied: AppliedMigration[]): void {
   const localByVersion = new Map(local.map((migration) => [migration.version, migration]));
@@ -42,6 +49,7 @@ async function status(prisma: PrismaClient, migrations: Migration[]): Promise<vo
   const applied = await readApplied(prisma); verifyHistory(migrations, applied);
   const versions = new Set(applied.map((migration) => migration.version));
   console.log(`Assessment migration ledger: ${LEDGER}`);
+  console.log(`PostgreSQL schema: ${targetSchema}`);
   for (const migration of migrations) console.log(`${versions.has(migration.version) ? "APPLIED" : "PENDING"} ${migration.fileName}`);
   console.log(`${applied.length} applied, ${migrations.length - applied.length} pending`);
 }
@@ -114,12 +122,13 @@ function splitSqlStatements(sql: string): string[] {
 async function executeMigration(prisma: PrismaClient, migration: Migration): Promise<void> {
   const startedAt = Date.now();
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext(${sqlLiteral(LOCK_KEY)}))`);
-    await tx.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ${LEDGER} (version VARCHAR(4) PRIMARY KEY, name VARCHAR(160) NOT NULL, checksum CHAR(64) NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), execution_ms INTEGER NOT NULL DEFAULT 0)`);
-    const alreadyApplied = await tx.$queryRawUnsafe<Array<{ exists: boolean }>>(`SELECT EXISTS (SELECT 1 FROM ${LEDGER} WHERE version = ${sqlLiteral(migration.version)}) AS exists`);
+    await tx.$executeRawUnsafe(`SET LOCAL search_path TO ${quotedSchema}`);
+    await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext(${sqlLiteral(`${LOCK_KEY}:${targetSchema}`)}))`);
+    await tx.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ${qualifiedLedger} (version VARCHAR(4) PRIMARY KEY, name VARCHAR(160) NOT NULL, checksum CHAR(64) NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), execution_ms INTEGER NOT NULL DEFAULT 0)`);
+    const alreadyApplied = await tx.$queryRawUnsafe<Array<{ exists: boolean }>>(`SELECT EXISTS (SELECT 1 FROM ${qualifiedLedger} WHERE version = ${sqlLiteral(migration.version)}) AS exists`);
     if (alreadyApplied[0]?.exists) throw new Error(`Assessment migration ${migration.version} is already applied`);
     for (const statement of splitSqlStatements(migration.sql)) await tx.$executeRawUnsafe(statement);
-    await tx.$executeRawUnsafe(`INSERT INTO ${LEDGER} (version, name, checksum, execution_ms) VALUES (${sqlLiteral(migration.version)}, ${sqlLiteral(migration.name)}, ${sqlLiteral(migration.checksum)}, ${Date.now() - startedAt})`);
+    await tx.$executeRawUnsafe(`INSERT INTO ${qualifiedLedger} (version, name, checksum, execution_ms) VALUES (${sqlLiteral(migration.version)}, ${sqlLiteral(migration.name)}, ${sqlLiteral(migration.checksum)}, ${Date.now() - startedAt})`);
   }, { timeout: 120_000 });
 }
 async function apply(prisma: PrismaClient, migrations: Migration[]): Promise<void> {
@@ -131,9 +140,11 @@ async function apply(prisma: PrismaClient, migrations: Migration[]): Promise<voi
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "status";
   if (command !== "status" && command !== "apply") throw new Error("Use status or apply");
-  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
   const migrations = await loadMigrations(); const prisma = new PrismaClient();
-  try { if (command === "apply") await apply(prisma, migrations); else await status(prisma, migrations); }
+  try {
+    await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS ${quotedSchema}`);
+    if (command === "apply") await apply(prisma, migrations); else await status(prisma, migrations);
+  }
   finally { await prisma.$disconnect(); }
 }
 main().catch((error: unknown) => { console.error(error instanceof Error ? error.stack ?? error.message : error); process.exitCode = 1; });

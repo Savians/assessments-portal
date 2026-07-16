@@ -41,20 +41,19 @@ Never copy development credentials, realm IDs, refresh tokens, item IDs, or veri
 ## Controlled cutover
 
 1. Rotate any credential that has been exposed outside the approved secret store.
-2. Create production secrets without enabling invoice creation.
-3. Deploy with `QB_INVOICE_CREATION_ENABLED=false` and payment reconciliation disabled.
-4. Run read-only checks: token refresh, CompanyInfo realm match, service item lookup, and webhook signature test.
-5. Confirm CloudWatch logs redact tokens, authorization headers, client data, and raw webhook secrets.
-6. Enable the production webhook and verify successful delivery/acknowledgement.
-7. Enable invoice creation for one approved internal production test session.
-8. Confirm one customer, one USD 2,997 invoice, correct item/account mapping, invoice email delivery, local IDs, and idempotent retry behavior.
-9. Complete an approved test payment or accounting-approved verification path; confirm exact invoice/zero-balance validation and account unlock.
-10. Enable scheduled reconciliation and general production traffic.
-11. Monitor Lambda errors, QuickBooks API failures, webhook signature failures, duplicate-prevention events, and reconciliation drift closely during launch.
+2. Configure the ignored `.env.production`, run the read-only CompanyInfo/service-item check, and sync `savians/assessment/production`.
+3. Apply only the assessment migrations to the isolated `assessment_production` PostgreSQL schema.
+4. Run CDK diff, deploy `SaviansAssessment-production`, and smoke-test health, database reachability, unauthenticated admin rejection, and the scheduler.
+5. Configure the deployed production webhook in Intuit and sync the production verifier token.
+6. Confirm CloudWatch logs redact tokens, authorization headers, client data, and raw webhook secrets.
+7. Switch Amplify to the production API and Cognito app client only after the backend checks pass.
+8. Create one explicitly approved internal production assessment and confirm one customer, one USD 2,997 invoice, correct item/account mapping, delivery, local IDs, and idempotent retry behavior.
+9. Complete one explicitly approved real payment or accounting-approved verification path; confirm exact invoice/currency/amount/zero-balance validation and account unlock.
+10. Monitor Lambda errors, QuickBooks API failures, webhook signature failures, duplicate-prevention events, reconciliation drift, and client payment-support requests closely during launch.
 
 ## Rollback
 
-- Set `QB_INVOICE_CREATION_ENABLED=false` to stop new invoices.
+- If invoice creation must stop, roll the live frontend back to the last approved API configuration or deploy a reviewed maintenance guard; do not invent a frontend-only payment state.
 - Keep the portal in a friendly maintenance/retry state; never fall back to frontend-only payment approval.
 - Disable reconciliation only if it is causing incorrect writes; retain webhook evidence and audit logs.
 - Do not delete or silently recreate production invoices. Accounting decides whether a test/incorrect invoice is voided.
@@ -69,3 +68,15 @@ Never copy development credentials, realm IDs, refresh tokens, item IDs, or veri
 - Re-run security/compliance reviews required by Intuit.
 - Keep sandbox available for regression testing; never test new invoice behavior first against the live company.
 
+## Deployed production resources (2026-07-17)
+
+- CDK stack: `SaviansAssessment-production`
+- API: `https://uqh3tg1vz1.execute-api.us-east-1.amazonaws.com`
+- Webhook: `https://uqh3tg1vz1.execute-api.us-east-1.amazonaws.com/api/assessment/webhooks/quickbooks`
+- Cognito app client: `3me7hnbiulr5tcept74jt4srvk`
+- Secret: `savians/assessment/production`
+- Database schema: `assessment_production`
+- Reconciliation: enabled every 15 minutes
+- The service-item check selected the active production `Tax Assessment Plan` item with the expected USD 2,997 price.
+
+The production verifier token must be copied from Intuit **Webhooks -> Production** after saving the deployed endpoint, then synced with `npm run secrets:sync:production`.

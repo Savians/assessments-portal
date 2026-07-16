@@ -57,6 +57,7 @@ const routes: RouteDefinition[] = [
   { service: "payment", method: apigwv2.HttpMethod.GET, path: "/api/assessment/status/{token}", authenticated: false },
   { service: "payment", method: apigwv2.HttpMethod.POST, path: "/api/assessment/refresh-payment-status", authenticated: false },
   { service: "payment", method: apigwv2.HttpMethod.POST, path: "/api/assessment/resend-invoice-email", authenticated: false },
+  { service: "payment", method: apigwv2.HttpMethod.POST, path: "/api/assessment/payment-support", authenticated: false },
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/invite/validate", authenticated: false },
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/invite/reissue", authenticated: false },
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/invite/start", authenticated: false },
@@ -151,11 +152,13 @@ export class AssessmentStack extends Stack {
       idTokenValidity: Duration.hours(1),
       refreshTokenValidity: Duration.days(30)
     });
-    new cognito.CfnUserPoolGroup(this, "AssessmentClientGroup", {
-      userPoolId: userPool.userPoolId,
-      groupName: "ASSESSMENT_CLIENT",
-      description: "Paid Savians Tax Assessment clients"
-    });
+    if (props.environmentName !== "production") {
+      new cognito.CfnUserPoolGroup(this, "AssessmentClientGroup", {
+        userPoolId: userPool.userPoolId,
+        groupName: "ASSESSMENT_CLIENT",
+        description: "Paid Savians Tax Assessment clients"
+      });
+    }
 
     const documentsBucket = s3.Bucket.fromBucketName(
       this,
@@ -215,7 +218,14 @@ export class AssessmentStack extends Stack {
             resourceName: props.kmsKeyId
           })
         )
-      : undefined;
+      : props.environmentName === "production"
+        ? new kms.Key(this, "AssessmentProductionKey", {
+            alias: "alias/savians-assessment-production",
+            description: "Encrypts Savians Assessments production Lambda configuration and application data",
+            enableKeyRotation: true,
+            removalPolicy: RemovalPolicy.RETAIN
+          })
+        : undefined;
     const applicationSecret = secretsmanager.Secret.fromSecretNameV2(
       this,
       "AssessmentApplicationSecret",
@@ -255,7 +265,6 @@ export class AssessmentStack extends Stack {
         memorySize: service === "portal" || service === "documents" || service === "admin" ? 1024 : 512,
         timeout: service === "webhook" ? Duration.seconds(15) : Duration.seconds(30),
         tracing: lambda.Tracing.ACTIVE,
-        reservedConcurrentExecutions: props.environmentName === "production" && service === "agreement" ? 1 : undefined,
         vpc,
         vpcSubnets: { subnets },
         securityGroups: [lambdaSecurityGroup],
@@ -286,7 +295,11 @@ export class AssessmentStack extends Stack {
           }
         }
       });
-      fn.applyRemovalPolicy(RemovalPolicy.RETAIN);
+      // Lambda code is stateless. Retaining production functions after a failed
+      // stack create leaves their fixed names orphaned and prevents a clean retry.
+      fn.applyRemovalPolicy(
+        props.environmentName === "production" ? RemovalPolicy.DESTROY : RemovalPolicy.RETAIN
+      );
       applicationSecret.grantRead(fn);
       if (["agreement", "payment", "webhook", "scheduler"].includes(service)) applicationSecret.grantWrite(fn);
       if (service === "agreement") {
@@ -376,7 +389,7 @@ export class AssessmentStack extends Stack {
       ruleName: "savians-assessment-" + props.environmentName + "-payment-reconciliation",
       description: "Backup reconciliation for open QuickBooks assessment invoices",
       schedule: events.Schedule.rate(Duration.minutes(15)),
-      enabled: false
+      enabled: props.environmentName === "production"
     });
     reconciliationRule.addTarget(new targets.LambdaFunction(scheduler));
 

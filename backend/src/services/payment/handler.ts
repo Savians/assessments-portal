@@ -41,6 +41,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
       const input = tokenBody.parse(parseBody(event.body, event.isBase64Encoded));
       return json(200, await service.resendInvoiceEmail(input.token));
     }
+    if (method === "POST" && path.endsWith("/payment-support")) {
+      const input = tokenBody.parse(parseBody(event.body, event.isBase64Encoded));
+      return json(200, await service.requestPaymentSupport(input.token));
+    }
     return json(404, { error: "NOT_FOUND", message: "The requested payment endpoint does not exist." });
   } catch (error) {
     if (error instanceof PaymentFlowError) return json(error.statusCode, {

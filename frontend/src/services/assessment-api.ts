@@ -149,6 +149,18 @@ export async function resendInvoiceEmail(token: string): Promise<{ ok: true; ret
   return body as { ok: true; retryAfterSeconds: number };
 }
 
+export async function requestPaymentSupport(token: string): Promise<{ ok: true; retryAfterSeconds: number }> {
+  const response = await fetch(`${apiBaseUrl()}/api/assessment/payment-support`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }), cache: "no-store"
+  });
+  const body = (await response.json()) as { ok: true; retryAfterSeconds: number } | ApiErrorBody;
+  if (!response.ok) {
+    const error = body as ApiErrorBody;
+    throw new AssessmentApiError(error.message ?? "We could not notify Savians about the payment issue.", error.issues, error.error, response.status, error.retryAfterSeconds);
+  }
+  return body as { ok: true; retryAfterSeconds: number };
+}
+
 export async function sendAccountSetupInvite(token: string): Promise<{ ok: true }> {
   const response = await fetch(`${apiBaseUrl()}/api/assessment/account/invite/reissue`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }), cache: "no-store"

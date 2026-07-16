@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { ArrowRight, CheckCircle2, Clock3, Mail, RefreshCw } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, LifeBuoy, Mail, RefreshCw } from "lucide-react";
 import {
   AssessmentApiError,
   loadPaymentStatus,
   refreshPaymentStatus,
+  requestPaymentSupport,
   resendInvoiceEmail,
   startPaidAccountSetup,
   type PaymentStatusResponse
@@ -49,6 +50,9 @@ export function PaymentStatusClient({ token }: { token: string }) {
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendNoticeIsCooldown, setResendNoticeIsCooldown] = useState(false);
+  const [requestingSupport, setRequestingSupport] = useState(false);
+  const [supportMessage, setSupportMessage] = useState<string | null>(null);
+  const [supportCooldown, setSupportCooldown] = useState(0);
 
   const paid = isVerifiedForSetup(details);
 
@@ -108,6 +112,12 @@ export function PaymentStatusClient({ token }: { token: string }) {
     return () => window.clearInterval(interval);
   }, [resendCooldown]);
 
+  useEffect(() => {
+    if (supportCooldown <= 0) return;
+    const interval = window.setInterval(() => setSupportCooldown((current) => Math.max(0, current - 1)), 1_000);
+    return () => window.clearInterval(interval);
+  }, [supportCooldown]);
+
   const refresh = async () => {
     setRefreshing(true);
     setError(null);
@@ -147,6 +157,26 @@ export function PaymentStatusClient({ token }: { token: string }) {
       }
     } finally {
       setResending(false);
+    }
+  };
+
+  const requestSupport = async () => {
+    setRequestingSupport(true);
+    setError(null);
+    setSupportMessage(null);
+    try {
+      const result = await requestPaymentSupport(token);
+      setSupportCooldown(result.retryAfterSeconds);
+      setSupportMessage("Savians has been notified. Your assessment remains secure, and no duplicate payment has been initiated.");
+    } catch (caught) {
+      if (caught instanceof AssessmentApiError && caught.statusCode === 429) {
+        setSupportCooldown(caught.retryAfterSeconds ?? 600);
+        setSupportMessage("Savians was already notified about this payment. You do not need to submit another request right now.");
+      } else {
+        setError(caught instanceof AssessmentApiError ? caught.message : "We could not notify Savians. Please email contactus@savians.com.");
+      }
+    } finally {
+      setRequestingSupport(false);
     }
   };
 
@@ -199,6 +229,7 @@ export function PaymentStatusClient({ token }: { token: string }) {
               {resendMessage}
             </p>
           ) : null}
+          {supportMessage ? <p className="mt-5 rounded-xl bg-blue-50 p-4 text-sm text-blue-900">{supportMessage}</p> : null}
 
           {!paid && isPending(details?.status) ? (
             <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950">
@@ -275,6 +306,21 @@ export function PaymentStatusClient({ token }: { token: string }) {
               Choosing later will not cancel your assessment. Keep this secure status link so you
               can come back to setup.
             </p>
+          ) : null}
+          {isPending(details?.status) ? (
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                <div>
+                  <p className="font-semibold text-navy-800">Payment did not go through or you need help?</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">QuickBooks handles card and bank-payment errors. Notify Savians and we&apos;ll review the invoice without unlocking the portal or charging you again.</p>
+                </div>
+                <Button type="button" variant="outline" onClick={requestSupport} disabled={requestingSupport || supportCooldown > 0} className="shrink-0">
+                  <LifeBuoy aria-hidden size={17} />
+                  {requestingSupport ? "Notifying..." : supportCooldown > 0 ? `Admin notified (${formatCooldown(supportCooldown)})` : "Notify Savians"}
+                </Button>
+              </div>
+              <p className="mt-3 text-xs text-slate-500">If the automatic message fails, email <a className="font-semibold text-navy-700 underline" href="mailto:contactus@savians.com">contactus@savians.com</a>.</p>
+            </div>
           ) : null}
           {isPending(details?.status) ? (
             <div className="mt-4 space-y-2 text-sm text-slate-500">

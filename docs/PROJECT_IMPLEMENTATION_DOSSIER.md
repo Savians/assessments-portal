@@ -1261,3 +1261,22 @@ The current forgot-password, verification-code resend, retry-safe confirmation, 
 - Added an organized admin overview, paginated client management, global document search, client workspaces, full intake editing, audited document previews, and controlled In Progress/Completed status transitions.
 - Added assessment-only migration `0005_admin_workflow_statuses.sql`; it remains separate from referral migrations.
 - Preserved signed legal evidence, verified payment fields, QuickBooks identifiers, and historical audit data as immutable operational records.
+
+## 44. Production backend and payment-support hardening (2026-07-17)
+
+- Created an isolated PostgreSQL schema named `assessment_production` on the shared RDS database so production assessment sessions and QuickBooks invoice identifiers cannot mix with staging data.
+- Updated the migration runner and database verifier to honor the schema selected by `DATABASE_URL`; production verification passed with 18 tables, 10 enums, five tracked assessment migrations, and the active `2026-v1.4` agreement.
+- Connected to the live QuickBooks company and selected the active `Tax Assessment Plan` service item with the expected USD 2,997 price.
+- Published the approved legal DOCX/PDF artifacts and verified their stored SHA-256 hashes.
+- Created and verified the `savians/assessment/production` Secrets Manager entry.
+- Deployed `SaviansAssessment-production` with production-named Lambdas, API Gateway, a separate app client in the shared Cognito pool, the retained production KMS key, and an enabled 15-minute payment reconciliation schedule.
+- Production outputs:
+  - API: `https://uqh3tg1vz1.execute-api.us-east-1.amazonaws.com`;
+  - Cognito app client: `3me7hnbiulr5tcept74jt4srvk`;
+  - QuickBooks webhook: `https://uqh3tg1vz1.execute-api.us-east-1.amazonaws.com/api/assessment/webhooks/quickbooks`.
+- Smoke tests passed for production health (`200`), database-backed invalid-token handling (`404`), unauthenticated admin rejection (`401`), and enabled scheduler state.
+- Added a payment-help action for pending invoices. It sends a rate-limited Resend notification to `contactus@savians.com`, records delivery/audit evidence, and never changes the verified payment state or initiates another payment.
+- Preserved the core money boundary: account access unlocks only after the stored QuickBooks invoice is re-fetched and its invoice ID, USD currency, expected total, and zero balance all match.
+- Removed production Lambda reserved concurrency because the account quota could not satisfy a second stack while retaining AWS's mandatory unreserved pool. Production now uses shared account concurrency.
+- Changed production Lambda removal policy to destroy stateless code on a failed stack create, while durable KMS/data resources remain retained, preventing fixed-name orphan conflicts during safe deployment retries.
+- Remaining cutover action: configure the production webhook in Intuit, sync its verifier token, run a signed webhook test, then switch Amplify's API/client environment variables and perform one explicitly approved real-money acceptance transaction.
