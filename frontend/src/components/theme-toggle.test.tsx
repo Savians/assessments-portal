@@ -17,6 +17,7 @@ describe("ThemeToggle", () => {
     });
     render(<ThemeToggle />);
     const toggle = await screen.findByRole("button", { name: "Switch to dark theme" });
+    expect(screen.queryByText(/mode/i)).not.toBeInTheDocument();
 
     fireEvent.click(toggle);
 

@@ -98,6 +98,11 @@ a { color: inherit; text-decoration: none; }
 .dark .to-navy-50\/80 { --tw-gradient-to: rgb(24 34 58 / 0.8) var(--tw-gradient-to-position); }
 
 .dark .hover\:bg-navy-50:hover { background-color: #202d49; }
+.dark .hover\:bg-slate-50:hover { background-color: #202d49; }
+.admin-client-row:hover,
+.admin-client-row:focus-visible { background-color: #f3f5fb; }
+.dark .admin-client-row:hover,
+.dark .admin-client-row:focus-visible { background-color: #202d49; }
 .dark .hover\:bg-gold-50:hover { background-color: #3b2d11; }
 .dark .hover\:bg-red-50:hover { background-color: #482028; }
 .dark .hover\:border-gold-300:hover { border-color: #c99b2e; }

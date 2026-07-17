@@ -36,14 +36,13 @@ export function ThemeToggle() {
   return (
     <button
       type="button"
-      className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-navy-800 transition hover:bg-navy-50 disabled:cursor-wait disabled:opacity-70"
+      className="focus-ring inline-grid size-11 shrink-0 place-items-center rounded-lg border border-slate-300 bg-white text-navy-800 transition hover:bg-navy-50 disabled:cursor-wait disabled:opacity-70"
       aria-label={mounted ? `Switch to ${nextTheme} theme` : "Theme preference"}
       title={mounted ? `Switch to ${nextTheme} theme` : "Theme preference"}
       onClick={toggleTheme}
       disabled={!mounted}
     >
       {mounted && theme === "dark" ? <Sun aria-hidden size={17} /> : <Moon aria-hidden size={17} />}
-      <span className="hidden sm:inline">{mounted ? `${nextTheme === "dark" ? "Dark" : "Light"} mode` : "Theme"}</span>
     </button>
   );
 }

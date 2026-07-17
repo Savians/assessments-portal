@@ -1,5 +1,6 @@
 import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
-import { AdminUpdateUserAttributesCommand, CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
+import { randomBytes } from "node:crypto";
+import { AdminDeleteUserCommand, AdminUpdateUserAttributesCommand, CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { AssessmentStatus, DocumentCategory, DocumentStatus, type Prisma, type PrismaClient } from "@prisma/client";
@@ -52,6 +53,24 @@ const businessSchema = z.object({
 });
 const businessesSchema = z.object({ businessInvestments: z.array(businessSchema).max(50) });
 const statusSchema = z.object({ status: z.enum(["IN_PROGRESS", "COMPLETED"]), reason: z.string().trim().max(500).optional() });
+const manualClientSchema = identitySchema.extend({
+  assessmentYear: z.number().int().min(2000).max(new Date().getUTCFullYear() + 1),
+  status: z.enum(["PENDING_UPLOADS", "READY_FOR_REVIEW", "IN_PROGRESS", "COMPLETED"]).default("COMPLETED")
+});
+const deleteClientSchema = z.object({ confirmationEmail: z.string().trim().email().transform((value) => value.toLowerCase()) });
+
+const manualStatus = (status: z.infer<typeof manualClientSchema>["status"]): AssessmentStatus => ({
+  PENDING_UPLOADS: AssessmentStatus.PROFILE_IN_PROGRESS,
+  READY_FOR_REVIEW: AssessmentStatus.DOCUMENTS_SUBMITTED,
+  IN_PROGRESS: AssessmentStatus.IN_PROGRESS,
+  COMPLETED: AssessmentStatus.COMPLETED
+})[status];
+
+const sevenYearsFrom = (date: Date) => {
+  const result = new Date(date);
+  result.setUTCFullYear(result.getUTCFullYear() + 7);
+  return result;
+};
 
 const publicLabel = (status: AssessmentStatus) => {
   const paymentStatuses: AssessmentStatus[] = [AssessmentStatus.PAYMENT_PENDING, AssessmentStatus.PAYMENT_VERIFYING, AssessmentStatus.INVOICE_CREATED, AssessmentStatus.INVOICE_SENT];
@@ -88,12 +107,72 @@ async function overview(prisma: PrismaClient) {
 }
 
 async function detail(prisma: PrismaClient, sessionId: string) {
-  const session = await prisma.assessmentSession.findUnique({ where: { id: sessionId }, include: {
+  const session = await prisma.assessmentSession.findFirst({ where: { id: sessionId, deletedAt: null }, include: {
     client: { select: { id: true, cognitoUserId: true, normalizedEmail: true, emailVerifiedAt: true } }, profile: { include: { householdMembers: { orderBy: { createdAt: "asc" } }, properties: { include: { owners: true }, orderBy: { createdAt: "asc" } }, businessInvestments: { orderBy: { createdAt: "asc" } } } },
     documents: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } }, statusHistory: { orderBy: { createdAt: "desc" }, take: 100 }, auditLogs: { orderBy: { createdAt: "desc" }, take: 100 }
   } });
   if (!session) throw new AdminRequestError("CLIENT_NOT_FOUND", "Assessment client was not found.", 404);
   return { ...session, statusLabel: publicLabel(session.status) };
+}
+
+async function createManualClient(prisma: PrismaClient, admin: AdminIdentity, raw: unknown) {
+  const input = manualClientSchema.parse(raw);
+  const duplicate = await prisma.assessmentSession.findFirst({ where: { normalizedEmail: input.email, serviceCode: "TAX_ASSESSMENT", assessmentYear: input.assessmentYear }, select: { id: true, deletedAt: true } });
+  if (duplicate) throw new AdminRequestError("CLIENT_YEAR_ALREADY_EXISTS", duplicate.deletedAt ? "A deleted assessment already exists for this email and year. Contact support to restore it." : "This client already has an assessment for that year.", 409);
+  const existingClient = await prisma.assessmentClient.findUnique({ where: { normalizedEmail: input.email }, select: { id: true, deletedAt: true } });
+  if (existingClient?.deletedAt) throw new AdminRequestError("CLIENT_DELETED", "This client was previously deleted and must be restored through the retention workflow.", 409);
+
+  const now = new Date(), targetStatus = manualStatus(input.status), retentionUntil = sevenYearsFrom(now);
+  const session = await prisma.$transaction(async (tx) => {
+    const client = existingClient ?? await tx.assessmentClient.create({ data: { normalizedEmail: input.email, emailVerifiedAt: now }, select: { id: true } });
+    const created = await tx.assessmentSession.create({ data: {
+      clientId: client.id, normalizedEmail: input.email, phone: input.phone, firstName: input.firstName, middleName: input.middleName ?? null, lastName: input.lastName,
+      dateOfBirth: new Date(input.dateOfBirth + "T00:00:00.000Z"), clientType: input.clientType, businessName: input.businessName ?? null, state: input.state,
+      incomeRange: input.incomeRange ?? null, estimatedTaxPaidRange: input.estimatedTaxPaidRange ?? null, consentAcceptedAt: now, consentVersion: "admin-manual-import-v1",
+      assessmentYear: input.assessmentYear, status: targetStatus, statusTokenHash: randomBytes(32).toString("hex"), statusTokenExpiresAt: now,
+      accountCreationAllowed: false, documentUploadAllowed: false, retentionUntil
+    } });
+    await tx.assessmentStatusHistory.create({ data: { sessionId: created.id, oldStatus: null, newStatus: targetStatus, reason: "Historical client added manually by " + admin.email + ".", actorType: admin.role, actorId: admin.id } });
+    await tx.auditLog.create({ data: { clientId: client.id, sessionId: created.id, action: "ADMIN_HISTORICAL_CLIENT_CREATED", entityType: "AssessmentSession", entityId: created.id, actorType: admin.role, actorId: admin.id, metadata: { assessmentYear: input.assessmentYear, importedStatus: input.status } } });
+    return created;
+  });
+  return detail(prisma, session.id);
+}
+
+async function deleteClient(prisma: PrismaClient, admin: AdminIdentity, sessionId: string, raw: unknown) {
+  const input = deleteClientSchema.parse(raw);
+  const selected = await prisma.assessmentSession.findFirst({ where: { id: sessionId, deletedAt: null }, select: { id: true, clientId: true, normalizedEmail: true, legalHold: true, retentionUntil: true } });
+  if (!selected) throw new AdminRequestError("CLIENT_NOT_FOUND", "Assessment client was not found.", 404);
+  if (input.confirmationEmail !== selected.normalizedEmail) throw new AdminRequestError("DELETE_CONFIRMATION_MISMATCH", "Enter the client's exact email address to confirm deletion.", 400);
+  const sessionWhere: Prisma.AssessmentSessionWhereInput = selected.clientId ? { clientId: selected.clientId, deletedAt: null } : { id: selected.id, deletedAt: null };
+  const sessions = await prisma.assessmentSession.findMany({ where: sessionWhere, select: { id: true, legalHold: true, retentionUntil: true } });
+  const sessionIds = sessions.map(({ id }) => id);
+  const heldDocument = await prisma.documentMetadata.findFirst({ where: { sessionId: { in: sessionIds }, legalHold: true }, select: { id: true } });
+  if (selected.legalHold || sessions.some(({ legalHold }) => legalHold) || heldDocument) throw new AdminRequestError("LEGAL_HOLD_ACTIVE", "This client cannot be deleted while a legal hold is active.", 409);
+
+  if (selected.clientId) {
+    const client = await prisma.assessmentClient.findUnique({ where: { id: selected.clientId }, select: { cognitoUserId: true } });
+    if (client?.cognitoUserId) {
+      try {
+        await new CognitoIdentityProviderClient({}).send(new AdminDeleteUserCommand({ UserPoolId: process.env.COGNITO_USER_POOL_ID, Username: selected.normalizedEmail }));
+      } catch (error) {
+        if (!(error instanceof Error) || error.name !== "UserNotFoundException") throw error;
+      }
+    }
+  }
+
+  const now = new Date();
+  const documentCount = await prisma.$transaction(async (tx) => {
+    const documents = await tx.documentMetadata.updateMany({ where: { sessionId: { in: sessionIds }, deletedAt: null }, data: { deletedAt: now, status: DocumentStatus.DELETED } });
+    await tx.accountInvite.updateMany({ where: { sessionId: { in: sessionIds }, revokedAt: null }, data: { revokedAt: now } });
+    await tx.recoveryToken.updateMany({ where: { sessionId: { in: sessionIds }, usedAt: null }, data: { usedAt: now } });
+    await tx.assessmentSession.updateMany({ where: { id: { in: sessionIds } }, data: { deletedAt: now, accountCreationAllowed: false, documentUploadAllowed: false, statusTokenExpiresAt: now } });
+    if (selected.clientId) await tx.assessmentClient.update({ where: { id: selected.clientId }, data: { deletedAt: now } });
+    await tx.auditLog.create({ data: { clientId: selected.clientId, sessionId: selected.id, action: "ADMIN_CLIENT_DELETED", entityType: "AssessmentClient", entityId: selected.clientId ?? selected.id, actorType: admin.role, actorId: admin.id, metadata: { affectedSessionIds: sessionIds, documentCount: documents.count, retentionPolicy: "SEVEN_YEARS", portalAccessRevoked: true } } });
+    return documents.count;
+  });
+  const retainedUntil = sessions.map(({ retentionUntil }) => retentionUntil).filter((value): value is Date => Boolean(value)).sort((a, b) => b.getTime() - a.getTime())[0] ?? sevenYearsFrom(now);
+  return { deleted: true, affectedSessions: sessionIds.length, documentCount, retainedUntil };
 }
 
 async function audit(prisma: PrismaClient, admin: AdminIdentity, sessionId: string, action: string, metadata?: Prisma.InputJsonValue) {
@@ -172,11 +251,13 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
     const secrets = await getApplicationSecrets(), prisma = getPrismaClient(secrets.DATABASE_URL), method = event.requestContext.http.method, path = event.rawPath, query = event.queryStringParameters ?? {};
     if (method === "GET" && path.endsWith("/admin/overview")) return json(200, await overview(prisma));
     if (method === "GET" && path.endsWith("/admin/clients")) return json(200, await listClients(prisma, query));
+    if (method === "POST" && path.endsWith("/admin/clients")) return json(201, await createManualClient(prisma, admin, parseBody(event.body, event.isBase64Encoded)));
     if (method === "GET" && path.endsWith("/admin/documents")) return json(200, await listDocuments(prisma, query));
     if (method === "GET" && path.endsWith("/preview-url")) return json(200, await previewDocument(prisma, admin, event.pathParameters?.documentId ?? ""));
     const sessionId = event.pathParameters?.sessionId ?? "";
     if (method === "GET" && /\/admin\/clients\/[^/]+$/.test(path)) return json(200, await detail(prisma, sessionId));
     const raw = () => parseBody(event.body, event.isBase64Encoded);
+    if (method === "DELETE" && /\/admin\/clients\/[^/]+$/.test(path)) return json(200, await deleteClient(prisma, admin, sessionId, raw()));
     if (method === "PUT" && path.endsWith("/identity")) return json(200, await updateIdentity(prisma, admin, sessionId, raw()));
     if (method === "PUT" && path.endsWith("/profile")) return json(200, await saveProfile(prisma, admin, sessionId, raw()));
     if (method === "PUT" && path.endsWith("/properties")) return json(200, await saveProperties(prisma, admin, sessionId, raw()));

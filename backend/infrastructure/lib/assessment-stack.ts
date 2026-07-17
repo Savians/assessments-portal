@@ -69,7 +69,9 @@ const routes: RouteDefinition[] = [
   { service: "auth", method: apigwv2.HttpMethod.POST, path: "/api/assessment/account/existing/claim", authenticated: true },
   { service: "admin", method: apigwv2.HttpMethod.GET, path: "/api/assessment/admin/overview", authenticated: true },
   { service: "admin", method: apigwv2.HttpMethod.GET, path: "/api/assessment/admin/clients", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.POST, path: "/api/assessment/admin/clients", authenticated: true },
   { service: "admin", method: apigwv2.HttpMethod.GET, path: "/api/assessment/admin/clients/{sessionId}", authenticated: true },
+  { service: "admin", method: apigwv2.HttpMethod.DELETE, path: "/api/assessment/admin/clients/{sessionId}", authenticated: true },
   { service: "admin", method: apigwv2.HttpMethod.PUT, path: "/api/assessment/admin/clients/{sessionId}/identity", authenticated: true },
   { service: "admin", method: apigwv2.HttpMethod.PUT, path: "/api/assessment/admin/clients/{sessionId}/profile", authenticated: true },
   { service: "admin", method: apigwv2.HttpMethod.PUT, path: "/api/assessment/admin/clients/{sessionId}/properties", authenticated: true },
@@ -323,7 +325,7 @@ export class AssessmentStack extends Stack {
       }
       if (service === "admin") {
         fn.addToRolePolicy(new iam.PolicyStatement({ actions: ["s3:GetObject"], resources: [documentsBucket.arnForObjects("assessments/*")] }));
-        fn.addToRolePolicy(new iam.PolicyStatement({ actions: ["cognito-idp:AdminUpdateUserAttributes"], resources: [userPool.userPoolArn] }));
+        fn.addToRolePolicy(new iam.PolicyStatement({ actions: ["cognito-idp:AdminDeleteUser", "cognito-idp:AdminUpdateUserAttributes"], resources: [userPool.userPoolArn] }));
       }
       if (service === "auth") {
         fn.addToRolePolicy(new iam.PolicyStatement({

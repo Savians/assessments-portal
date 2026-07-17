@@ -21,6 +21,13 @@ export interface AdminClientSummary {
   id: string; clientId: string | null; firstName: string; middleName: string | null; lastName: string; normalizedEmail: string; phone: string; assessmentYear: number;
   status: string; statusLabel: string; qbInvoiceNumber: string | null; qbInvoiceBalance: number | null; paymentVerifiedAt: string | null; updatedAt: string; documentCount: number;
 }
+export interface AdminManualClientInput {
+  firstName: string; middleName?: string; lastName: string; email: string; phone: string; dateOfBirth: string;
+  clientType: "INDIVIDUAL" | "BUSINESS_OWNER" | "REAL_ESTATE_INVESTOR" | "W2_HIGH_EARNER" | "OTHER";
+  businessName?: string; state: string; incomeRange?: string; estimatedTaxPaidRange?: string; assessmentYear: number;
+  status: "PENDING_UPLOADS" | "READY_FOR_REVIEW" | "IN_PROGRESS" | "COMPLETED";
+}
+export interface AdminDeleteClientResult { deleted: true; affectedSessions: number; documentCount: number; retainedUntil: string; }
 export interface Paginated<T> { page: number; pageSize: number; total: number; totalPages: number; items: T[]; }
 export interface AdminDocument extends AssessmentDocument {
   session: { id: string; firstName: string; middleName: string | null; lastName: string; normalizedEmail: string; assessmentYear: number };
@@ -50,6 +57,8 @@ export function loadAdminClients(token: string, query: { search?: string; status
   return request<Paginated<AdminClientSummary>>(`/api/assessment/admin/clients?${params}`, token);
 }
 export const loadAdminClient = (token: string, sessionId: string) => request<AdminClientDetail>(`/api/assessment/admin/clients/${encodeURIComponent(sessionId)}`, token);
+export const createAdminClient = (token: string, input: AdminManualClientInput) => request<AdminClientDetail>("/api/assessment/admin/clients", token, { method: "POST", body: JSON.stringify(input) });
+export const deleteAdminClient = (token: string, sessionId: string, confirmationEmail: string) => request<AdminDeleteClientResult>(`/api/assessment/admin/clients/${encodeURIComponent(sessionId)}`, token, { method: "DELETE", body: JSON.stringify({ confirmationEmail }) });
 export function loadAdminDocuments(token: string, query: { search?: string; category?: DocumentCategory | ""; page?: number; pageSize?: number }) {
   const params = new URLSearchParams(); Object.entries(query).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
   return request<Paginated<AdminDocument>>(`/api/assessment/admin/documents?${params}`, token);

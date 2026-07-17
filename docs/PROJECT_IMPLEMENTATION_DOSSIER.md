@@ -1282,3 +1282,20 @@ The current forgot-password, verification-code resend, retry-safe confirmation, 
 - Configured the production webhook in Intuit, synced its verifier token, and verified a signed empty/non-financial probe returns `200` while an invalid signature returns `401`.
 - Switched Amplify to the production API and Cognito app client. The live bundles contain the production values and neither staging value; `/`, `/login`, and `/assessment/start` return `200`.
 - Amplify production job 16 succeeded. The only remaining financial acceptance action is one explicitly approved real-money transaction; no automated test created an invoice or charged money.
+
+## 45. Admin client lifecycle and usability hardening (2026-07-17)
+
+- Fixed client-table hover and focus contrast in both light and dark themes; all client rows are now mouse- and keyboard-clickable.
+- Added a dedicated historical-client intake dialog with assessment year, current status, identity, contact, and classification fields. Manual imports do not fabricate a QuickBooks invoice, client consent, or portal password.
+- Added protected profile initialization so admins can enter the full intake for a manually imported client.
+- Added a guarded Delete Client workflow:
+  - exact client email confirmation is required;
+  - all assessment years linked to that client are removed from operational views;
+  - portal account creation and document uploads are disabled;
+  - outstanding invites and recovery tokens are revoked;
+  - a linked Cognito client user is removed;
+  - document metadata is soft-deleted while encrypted objects, signed agreements, invoice references, and audit evidence remain protected for the seven-year retention period;
+  - any active session or document legal hold blocks deletion;
+  - the action and affected records are audit logged.
+- Reduced the global theme toggle to an accessible icon-only control at every screen size.
+- Verification completed before deployment: backend typecheck/lint/build and 69 tests passed; frontend typecheck/lint/build and 17 tests passed; production CDK synthesis confirmed the new POST/DELETE admin routes and `AdminDeleteUser` permission.
