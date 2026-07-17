@@ -63,6 +63,12 @@ describe("shared Cognito role routing", () => {
     expect(routeForPortalRole(identity.role)).toBe("/admin/dashboard");
   });
 
+  it.each(["SUPERADMIN", "SUPER_ADMIN", "SuperAdmin", "superadmin"])("routes shared-pool superadmin spelling %s to administration", (group) => {
+    const identity = getPortalIdentity(token({ sub: "super-1", email: "super@savians.com", "cognito:groups": [group] }));
+    expect(identity.role).toBe("SUPER_ADMIN");
+    expect(routeForPortalRole(identity.role)).toBe("/admin/dashboard");
+  });
+
   it("routes assessment clients to their client dashboard", () => {
     const identity = getPortalIdentity(token({ sub: "client-1", email: "client@example.com", "cognito:groups": ["ASSESSMENT_CLIENT"] }));
     expect(identity.role).toBe("ASSESSMENT_CLIENT");

@@ -10,6 +10,7 @@ import { getPrismaClient } from "../../shared/prisma-client";
 import { PrismaPortalProfileRepository } from "../portal/prisma-profile-repository";
 import { PortalProfileService, savePortalProfileSchema } from "../portal/profile-service";
 import { AdminAccessError, assertAssessmentAdmin, type AdminClaims, type AdminIdentity } from "./admin-auth";
+import { buildClientSearchWhere } from "./admin-client-search";
 
 const json = (statusCode: number, body: unknown) => ({
   statusCode,
@@ -71,9 +72,7 @@ const statusFilter = (label?: string): AssessmentStatus[] | undefined => {
 
 async function listClients(prisma: PrismaClient, query: Record<string, string | undefined>) {
   const page = Math.max(1, Number(query.page) || 1), pageSize = Math.min(100, Math.max(10, Number(query.pageSize) || 25)), search = query.search?.trim(), statuses = statusFilter(query.status);
-  const where: Prisma.AssessmentSessionWhereInput = { deletedAt: null, ...(query.year ? { assessmentYear: Number(query.year) } : {}), ...(statuses ? { status: { in: statuses } } : {}), ...(search ? { OR: [
-    { firstName: { contains: search, mode: "insensitive" } }, { lastName: { contains: search, mode: "insensitive" } }, { normalizedEmail: { contains: search, mode: "insensitive" } }, { phone: { contains: search } }, { qbInvoiceNumber: { contains: search, mode: "insensitive" } }
-  ] } : {}) };
+  const where: Prisma.AssessmentSessionWhereInput = { deletedAt: null, ...(query.year ? { assessmentYear: Number(query.year) } : {}), ...(statuses ? { status: { in: statuses } } : {}), ...(search ? buildClientSearchWhere(search) : {}) };
   const [total, rows] = await prisma.$transaction([prisma.assessmentSession.count({ where }), prisma.assessmentSession.findMany({ where, select: {
     id: true, clientId: true, firstName: true, middleName: true, lastName: true, normalizedEmail: true, phone: true, assessmentYear: true, status: true, qbInvoiceNumber: true,
     qbInvoiceBalance: true, paymentVerifiedAt: true, updatedAt: true, _count: { select: { documents: { where: { deletedAt: null, status: { in: [DocumentStatus.UPLOADED, DocumentStatus.CLEAN] } } } } }

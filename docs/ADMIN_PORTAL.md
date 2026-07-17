@@ -8,8 +8,8 @@ The assessment administration workspace gives the existing Savians referral admi
 
 - All assessment users sign in at `/login` through the assessment app client in the shared Cognito user pool.
 - Cognito group routing is automatic:
-  - `Admin` and legacy `Finance` -> `/admin/dashboard`;
-  - `superadmin` and legacy `SuperAdmin` -> `/admin/dashboard` with super-admin identity;
+  - `ADMIN`, `Admin`, and legacy `Finance` -> `/admin/dashboard`;
+  - `SUPERADMIN`, `SUPER_ADMIN`, `superadmin`, and legacy `SuperAdmin` -> `/admin/dashboard` with super-admin identity and full admin inheritance;
   - `ASSESSMENT_CLIENT` -> `/portal/dashboard`.
 - The browser redirect is a convenience only. Every `/api/assessment/admin/*` route independently requires an admin/super-admin group claim inside the Lambda.
 - A valid client JWT cannot call an admin API.
@@ -71,6 +71,14 @@ Only `DOCUMENTS_SUBMITTED`, `IN_PROGRESS`, or `COMPLETED` assessments can be cha
 
 All list endpoints paginate; document URLs expire after five minutes; document views and all edits are audit-logged.
 
+## Database credential rotation
+
+The RDS instance owns the current master credential in its AWS-managed secret. When RDS rotates that password, update only DATABASE_URL in each assessment application secret with:
+
+    npx ts-node scripts/sync-database-credential-from-rds.ts --application-secret=<assessment-secret-name> --rds-secret=<rds-managed-secret-id> --env-file=<local-env-file>
+
+The script preserves and verifies every non-database field, including QuickBooks, Resend, and webhook credentials. Run it once for staging and once for production. This avoids using the general secret-sync command for a database-only rotation, which could overwrite a newer QuickBooks refresh token.
+
 ## Database migration
 
 `backend/database/migrations/0005_admin_workflow_statuses.sql` adds `IN_PROGRESS` and `COMPLETED` to the assessment-only enum. It is applied through `assessment_schema_migrations`, not through the referral portal's Prisma migration history.
@@ -84,3 +92,7 @@ All list endpoints paginate; document URLs expire after five minutes; document v
 5. Sign in with the existing referral admin and verify role routing.
 6. Confirm a client credential routes to the client dashboard and receives `403` on an admin API.
 7. Test status change, data edit, and document preview against a controlled assessment.
+
+## Production smoke-test record
+
+On July 17, 2026, the shared-pool superadmin account was verified against the production assessment portal. Overview counts, client directory, all-documents directory, client summary, personal/family data, real-estate intake, business/entity intake, documents, status history, and audit history all loaded without browser errors. Full visible-name search was also verified. No production client data or statuses were changed during this read-only smoke test.

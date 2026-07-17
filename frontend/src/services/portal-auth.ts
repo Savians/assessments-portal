@@ -99,11 +99,12 @@ export function getPortalIdentity(token: string): PortalIdentity {
   const payload = decodeTokenPayload(token);
   const rawGroups = payload["cognito:groups"];
   const groups = Array.isArray(rawGroups) ? rawGroups.filter((value): value is string => typeof value === "string") : [];
-  const role: PortalRole = groups.includes("superadmin") || groups.includes("SuperAdmin")
+  const normalizedGroups = new Set(groups.map((group) => group.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")));
+  const role: PortalRole = normalizedGroups.has("SUPERADMIN")
     ? "SUPER_ADMIN"
-    : groups.includes("Admin") || groups.includes("Finance")
+    : normalizedGroups.has("ADMIN") || normalizedGroups.has("FINANCE")
       ? "ADMIN"
-      : groups.includes("ASSESSMENT_CLIENT")
+      : normalizedGroups.has("ASSESSMENTCLIENT")
         ? "ASSESSMENT_CLIENT"
         : "UNKNOWN";
   return { sub: typeof payload.sub === "string" ? payload.sub : "", email: typeof payload.email === "string" ? payload.email : "", role, groups };
