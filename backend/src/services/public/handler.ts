@@ -7,6 +7,7 @@ import { getRuntimeConfig } from "../../shared/runtime-config";
 import { PrismaAssessmentSessionRepository } from "./prisma-session-repository";
 import { ResendResumeAgreementNotifier } from "./resend-resume-notifier";
 import { ResumeEmailDeliveryError, StartAssessmentService } from "./start-assessment";
+import { AwsCognitoAccountGateway } from "../auth/cognito-account-gateway";
 
 const json = (statusCode: number, body: unknown) => ({
   statusCode,
@@ -54,7 +55,8 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
       const service = new StartAssessmentService(
         repository,
         new ResendResumeAgreementNotifier(secrets),
-        process.env.FRONTEND_URL ?? "http://localhost:3000"
+        process.env.FRONTEND_URL ?? "http://localhost:3000",
+        new AwsCognitoAccountGateway()
       );
       const result = await service.execute(
         parseBody(event.body, event.isBase64Encoded),

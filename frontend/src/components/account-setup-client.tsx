@@ -40,6 +40,9 @@ export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
         if (result.status === "ACCOUNT_CREATED") {
           setPhase("DONE");
           setMessage("This account setup is already complete. Continue to your dashboard to sign in.");
+        } else if (result.accountExists) {
+          setPhase("EXISTING");
+          setMessage("Your existing Savians account was identified before payment. Sign in with its current password to connect this assessment.");
         }
       })
       .catch((caught) => {

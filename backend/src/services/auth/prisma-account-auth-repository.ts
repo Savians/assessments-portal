@@ -135,6 +135,20 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
     });
   }
 
+  async recordPasswordResetEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED"; providerMessageId?: string; failureReason?: string; sentAt: Date }): Promise<void> {
+    await this.prisma.emailEvent.create({
+      data: {
+        sessionId: input.sessionId,
+        templateKey: "PASSWORD_RESET_CODE",
+        recipientEmail: input.recipientEmail,
+        providerMessageId: input.providerMessageId,
+        status: DeliveryStatus[input.status],
+        failureReason: input.failureReason,
+        sentAt: input.status === "SENT" ? input.sentAt : undefined
+      }
+    });
+  }
+
   async revokeAccountVerificationCodes(
     sessionId: string,
     verificationType: string,
@@ -167,7 +181,7 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
     verificationType: string
   ): Promise<Date | null> {
     const token = await this.prisma.recoveryToken.findFirst({
-      where: { sessionId, verificationType },
+      where: { sessionId, verificationType, usedAt: null },
       orderBy: { createdAt: "desc" },
       select: { createdAt: true }
     });
@@ -211,27 +225,37 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
   }
 
   async findPasswordResetSubjectByEmail(normalizedEmail: string): Promise<PasswordResetSubject | null> {
-    const client = await this.prisma.assessmentClient.findFirst({
+    const session = await this.prisma.assessmentSession.findFirst({
       where: {
         normalizedEmail,
         deletedAt: null,
-        cognitoUserId: { not: null },
-        emailVerifiedAt: { not: null }
+        accountCreationAllowed: true,
+        status: {
+          in: [
+            AssessmentStatus.PAID_VERIFIED,
+            AssessmentStatus.ACCOUNT_INVITED,
+            AssessmentStatus.ACCOUNT_CREATED,
+            AssessmentStatus.PROFILE_IN_PROGRESS,
+            AssessmentStatus.PROFILE_COMPLETED,
+            AssessmentStatus.DOCUMENTS_IN_PROGRESS,
+            AssessmentStatus.DOCUMENTS_SUBMITTED,
+            AssessmentStatus.IN_PROGRESS,
+            AssessmentStatus.COMPLETED
+          ]
+        }
       },
       select: {
+        id: true,
         normalizedEmail: true,
-        sessions: {
-          orderBy: [{ assessmentYear: "desc" }, { createdAt: "desc" }],
-          take: 1,
-          select: { id: true, firstName: true, assessmentYear: true }
-        }
-      }
+        firstName: true,
+        assessmentYear: true
+      },
+      orderBy: [{ assessmentYear: "desc" }, { createdAt: "desc" }]
     });
-    const session = client?.sessions[0];
-    return client && session
+    return session
       ? {
           sessionId: session.id,
-          normalizedEmail: client.normalizedEmail,
+          normalizedEmail: session.normalizedEmail,
           firstName: session.firstName,
           assessmentYear: session.assessmentYear
         }

@@ -39,8 +39,10 @@ export class ResendAccountInviteNotifier implements AccountInviteNotifier {
     if (result.error) throw new Error(`Resend account verification email failed: ${result.error.message}`);
   }
 
-  async sendPasswordResetCode(input: { email: string; firstName: string; code: string }): Promise<void> {
-    if (!this.secrets.EMAIL_ENABLED || !this.secrets.RESEND_API_KEY) return;
+  async sendPasswordResetCode(input: { email: string; firstName: string; code: string }): Promise<{ providerMessageId?: string }> {
+    if (!this.secrets.EMAIL_ENABLED || !this.secrets.RESEND_API_KEY) {
+      throw new Error("Resend password reset email is not configured");
+    }
     const resend = new Resend(this.secrets.RESEND_API_KEY);
     const result = await resend.emails.send({
       from: this.from,
@@ -51,5 +53,6 @@ export class ResendAccountInviteNotifier implements AccountInviteNotifier {
       html: `<p>Hi ${escapeHtml(input.firstName)},</p><p>Your single-use Savians Assessment password reset code is:</p><p style="font-size:24px;font-weight:700;letter-spacing:4px">${escapeHtml(input.code)}</p><p>This code expires in 15 minutes.</p><p>If you did not request this reset, you can safely ignore this email.</p>`
     });
     if (result.error) throw new Error(`Resend password reset email failed: ${result.error.message}`);
+    return { providerMessageId: result.data?.id };
   }
 }

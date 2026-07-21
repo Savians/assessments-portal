@@ -216,6 +216,22 @@ describe("StartAssessmentService", () => {
     expect(repository.sessions).toHaveLength(2);
   });
 
+  it("reports a reusable account before agreement and payment", async () => {
+    const repository = new InMemoryRepository();
+    const service = new StartAssessmentService(
+      repository,
+      new SkippedNotifier(),
+      "https://assessments.savians.com",
+      { accountExists: async () => true }
+    );
+
+    const result = await service.execute(validInput, { now: new Date("2026-07-05T00:00:00.000Z") });
+
+    expect(result.accountExists).toBe(true);
+    expect(result.message).toContain("existing Savians account");
+    expect(result.nextUrl).toMatch(/^\/assessment\/agreement\//);
+  });
+
   it("rejects future DOB, missing consent, and missing conditional business name", () => {
     expect(() =>
       startAssessmentSchema.parse({

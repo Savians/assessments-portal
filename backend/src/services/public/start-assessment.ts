@@ -127,6 +127,10 @@ export interface ResumeAgreementNotifier {
   }): Promise<{ status: "SENT" | "SKIPPED"; providerMessageId?: string }>;
 }
 
+export interface AssessmentAccountDirectory {
+  accountExists(email: string): Promise<boolean>;
+}
+
 export interface StartAssessmentContext {
   ipAddress?: string;
   userAgent?: string;
@@ -137,6 +141,7 @@ export interface StartAssessmentResult {
   status: AssessmentStatus;
   nextUrl: string;
   resumed: boolean;
+  accountExists: boolean;
   assessmentYear: number;
   message: string;
 }
@@ -192,7 +197,8 @@ export class StartAssessmentService {
   constructor(
     private readonly repository: AssessmentSessionRepository,
     private readonly notifier: ResumeAgreementNotifier,
-    private readonly frontendUrl: string
+    private readonly frontendUrl: string,
+    private readonly accountDirectory?: AssessmentAccountDirectory
   ) {}
 
   async execute(
@@ -203,6 +209,7 @@ export class StartAssessmentService {
     const now = context.now ?? new Date();
     const assessmentYear = now.getUTCFullYear();
     const normalizedEmail = normalizeEmail(input.email);
+    const accountExists = await this.accountDirectory?.accountExists(normalizedEmail) ?? false;
     const normalizedPhone = normalizeUsPhone(input.phone);
     const statusToken = generateStatusToken();
     const statusTokenHash = hashStatusToken(statusToken);
@@ -293,10 +300,13 @@ export class StartAssessmentService {
       status: session.status,
       nextUrl: resumed ? "/assessment/check-email" : nextUrl,
       resumed,
+      accountExists,
       assessmentYear,
       message: resumed
         ? "Your existing annual assessment has been found. Check your email for a secure resume link."
-        : "Your assessment has been started. Please review the legal agreement."
+        : accountExists
+          ? "An existing Savians account was found. Your current password will remain unchanged; after payment, sign in to connect this assessment."
+          : "Your assessment has been started. Please review the legal agreement."
     };
   }
 

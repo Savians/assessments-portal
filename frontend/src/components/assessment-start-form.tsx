@@ -2,6 +2,7 @@
 
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import {
@@ -24,6 +25,7 @@ const states = [
 
 export function AssessmentStartForm() {
   const router = useRouter();
+  const [existingAccountNextUrl, setExistingAccountNextUrl] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
@@ -54,6 +56,10 @@ export function AssessmentStartForm() {
   const onSubmit = async (values: AssessmentStartFormValues) => {
     try {
       const result = await startAssessment(values);
+      if (result.accountExists && !result.resumed) {
+        setExistingAccountNextUrl(result.nextUrl);
+        return;
+      }
       router.push(result.nextUrl as Route);
     } catch (error) {
       const message =
@@ -67,6 +73,18 @@ export function AssessmentStartForm() {
   return (
     <form className="grid gap-7" noValidate onSubmit={handleSubmit(onSubmit)}>
       {errors.root?.message ? <ErrorAlert>{errors.root.message}</ErrorAlert> : null}
+      {existingAccountNextUrl ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-sm leading-6 text-blue-950" role="status">
+          <p className="font-bold">An existing Savians account was found for this email.</p>
+          <p className="mt-1">We checked before agreement and payment. Continue using this email; your current password will not be changed. After payment, you will sign in to connect this assessment to the same account.</p>
+          <Button className="mt-4" type="button" onClick={() => router.push(existingAccountNextUrl as Route)}>
+            Continue to Agreement
+          </Button>
+          <button className="ml-4 font-semibold text-navy-700 underline underline-offset-4" type="button" onClick={() => setExistingAccountNextUrl(null)}>
+            Use a different email
+          </button>
+        </div>
+      ) : null}
 
       <fieldset className="grid gap-5">
         <legend className="mb-4 text-xl font-bold text-navy-800">Your information</legend>
@@ -190,11 +208,10 @@ export function AssessmentStartForm() {
           No QuickBooks customer or invoice is created until you review and sign the Assessment
           Legal Agreement.
         </p>
-        <Button className="min-w-48" disabled={isSubmitting} type="submit">
-          {isSubmitting ? "Saving..." : "Continue to Agreement"}
+        <Button className="min-w-48" disabled={isSubmitting || Boolean(existingAccountNextUrl)} type="submit">
+          {isSubmitting ? "Checking account..." : existingAccountNextUrl ? "Account found" : "Continue to Agreement"}
         </Button>
       </div>
     </form>
   );
 }
-

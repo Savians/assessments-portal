@@ -4,6 +4,7 @@ export interface StartAssessmentResponse {
   status: string;
   nextUrl: string;
   resumed: boolean;
+  accountExists: boolean;
   assessmentYear: number;
   message: string;
 }
@@ -181,6 +182,7 @@ export async function startPaidAccountSetup(token: string): Promise<{ nextUrl: s
 
 export interface AccountInviteDetails {
   status: "INVITE_ACTIVE" | "ACCOUNT_CREATED";
+  accountExists: boolean;
   email: string;
   clientName: string;
   assessmentYear: number;

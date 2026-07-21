@@ -67,6 +67,7 @@ export interface AccountAuthRepository {
     verificationType?: string;
   }): Promise<void>;
   recordInviteEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED" | "SKIPPED"; failureReason?: string; sentAt: Date }): Promise<void>;
+  recordPasswordResetEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED"; providerMessageId?: string; failureReason?: string; sentAt: Date }): Promise<void>;
   revokeAccountVerificationCodes(sessionId: string, verificationType: string, at: Date): Promise<void>;
   createAccountVerificationCode(input: { sessionId: string; tokenHash: string; verificationType: string; expiresAt: Date }): Promise<void>;
   findLatestAccountVerificationCodeCreatedAt(sessionId: string, verificationType: string): Promise<Date | null>;
@@ -79,11 +80,12 @@ export interface AccountAuthRepository {
 export interface AccountInviteNotifier {
   send(input: { email: string; firstName: string; setupUrl: string; assessmentYear: number }): Promise<void>;
   sendVerificationCode(input: { email: string; firstName: string; code: string; assessmentYear: number }): Promise<void>;
-  sendPasswordResetCode(input: { email: string; firstName: string; code: string }): Promise<void>;
+  sendPasswordResetCode(input: { email: string; firstName: string; code: string }): Promise<{ providerMessageId?: string }>;
 }
 
 export interface CognitoAccountGateway {
-  prepareAccount(input: { email: string; password: string; fullName: string }): Promise<{ status: "PASSWORD_SET" | "EXISTING_CONFIRMED" }>;
+  accountExists(email: string): Promise<boolean>;
+  prepareAccount(input: { email: string; password: string; fullName: string }): Promise<{ status: "PASSWORD_SET" | "EXISTING_ACCOUNT" }>;
   confirmSignUp(input: { email: string; confirmationCode: string }): Promise<{ userSub: string; emailVerified: boolean }>;
   setPermanentPassword(input: { email: string; password: string }): Promise<void>;
 }
@@ -212,6 +214,7 @@ export class AccountAuthService {
     if (invite.usedAt && completedAccountStatuses.includes(invite.session.status)) {
       return {
         status: "ACCOUNT_CREATED" as const,
+        accountExists: true,
         email: invite.session.normalizedEmail,
         clientName: fullName(invite.session),
         assessmentYear: invite.session.assessmentYear,
@@ -220,8 +223,10 @@ export class AccountAuthService {
       };
     }
     this.assertActiveInvite(invite);
+    const accountExists = await this.cognito.accountExists(invite.session.normalizedEmail);
     return {
       status: "INVITE_ACTIVE" as const,
+      accountExists,
       email: invite.session.normalizedEmail,
       clientName: fullName(invite.session),
       assessmentYear: invite.session.assessmentYear,
@@ -238,7 +243,7 @@ export class AccountAuthService {
       password: input.password,
       fullName: fullName(invite.session)
     });
-    if (account.status === "EXISTING_CONFIRMED") {
+    if (account.status === "EXISTING_ACCOUNT") {
       return { status: "EXISTING_ACCOUNT", email: invite.session.normalizedEmail };
     }
     await this.issueVerificationCode(invite, false);
@@ -311,10 +316,13 @@ export class AccountAuthService {
 
   async requestPasswordReset(raw: unknown): Promise<{ ok: true; retryAfterSeconds: number }> {
     const { email } = passwordResetRequestSchema.parse(raw);
-    const subject = await this.repository.findPasswordResetSubjectByEmail(normalizeEmail(email));
+    const normalizedEmail = normalizeEmail(email);
+    const subject = await this.repository.findPasswordResetSubjectByEmail(normalizedEmail);
 
     // Always return the same response so this public endpoint cannot be used to enumerate accounts.
-    if (!subject) return { ok: true, retryAfterSeconds: 60 };
+    if (!subject || !(await this.cognito.accountExists(normalizedEmail))) {
+      return { ok: true, retryAfterSeconds: 60 };
+    }
 
     const now = this.now();
     const latest = await this.repository.findLatestAccountVerificationCodeCreatedAt(
@@ -335,17 +343,33 @@ export class AccountAuthService {
     });
 
     try {
-      await this.notifier.sendPasswordResetCode({
+      const delivery = await this.notifier.sendPasswordResetCode({
         email: subject.normalizedEmail,
         firstName: subject.firstName,
         code
       });
-    } catch (error) {
-      // Keep the response indistinguishable from an unknown account. Provider failures are
-      // logged without recipient details and remain indistinguishable to the public caller.
-      log("error", "password reset email delivery failed", {
-        error: error instanceof Error ? error.message : "Unknown Resend delivery error"
+      await this.repository.recordPasswordResetEmail({
+        sessionId: subject.sessionId,
+        recipientEmail: subject.normalizedEmail,
+        status: "SENT",
+        providerMessageId: delivery.providerMessageId,
+        sentAt: now
       });
+    } catch (error) {
+      const failureReason = error instanceof Error ? error.message : "Unknown Resend delivery error";
+      await this.repository.revokeAccountVerificationCodes(subject.sessionId, passwordResetVerificationType, now);
+      await this.repository.recordPasswordResetEmail({
+        sessionId: subject.sessionId,
+        recipientEmail: subject.normalizedEmail,
+        status: "FAILED",
+        failureReason,
+        sentAt: now
+      });
+      log("error", "password reset email delivery failed", {
+        sessionId: subject.sessionId,
+        error: failureReason
+      });
+      throw new AccountAuthError("PASSWORD_RESET_EMAIL_FAILED", "We could not send the password reset code. Please try again in a few minutes.", 502);
     }
     return { ok: true, retryAfterSeconds: 60 };
   }

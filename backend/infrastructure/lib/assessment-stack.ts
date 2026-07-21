@@ -339,6 +339,12 @@ export class AssessmentStack extends Stack {
           resources: [userPool.userPoolArn]
         }));
       }
+      if (service === "public") {
+        fn.addToRolePolicy(new iam.PolicyStatement({
+          actions: ["cognito-idp:AdminGetUser"],
+          resources: [userPool.userPoolArn]
+        }));
+      }
       encryptionKey?.grantEncryptDecrypt(fn);
       functions.set(service, fn);
     }

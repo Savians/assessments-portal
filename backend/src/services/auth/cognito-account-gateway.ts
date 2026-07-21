@@ -23,7 +23,20 @@ export class AwsCognitoAccountGateway implements CognitoAccountGateway {
   private readonly client = new CognitoIdentityProviderClient({});
   private readonly config = configSchema.parse(process.env);
 
-  async prepareAccount(input: { email: string; password: string; fullName: string }): Promise<{ status: "PASSWORD_SET" | "EXISTING_CONFIRMED" }> {
+  async accountExists(email: string): Promise<boolean> {
+    try {
+      await this.client.send(new AdminGetUserCommand({
+        UserPoolId: this.config.COGNITO_USER_POOL_ID,
+        Username: email.trim().toLowerCase()
+      }));
+      return true;
+    } catch (error) {
+      if (isUserNotFound(error)) return false;
+      throw error;
+    }
+  }
+
+  async prepareAccount(input: { email: string; password: string; fullName: string }): Promise<{ status: "PASSWORD_SET" | "EXISTING_ACCOUNT" }> {
     let existingUser: AdminGetUserCommandOutput | undefined;
     try {
       existingUser = await this.client.send(
@@ -61,8 +74,7 @@ export class AwsCognitoAccountGateway implements CognitoAccountGateway {
       }
     }
 
-    const emailVerified = existingUser?.UserAttributes?.find((attribute) => attribute.Name === "email_verified")?.Value === "true";
-    if (emailVerified) return { status: "EXISTING_CONFIRMED" };
+    if (existingUser) return { status: "EXISTING_ACCOUNT" };
 
     await this.client.send(
       new AdminUpdateUserAttributesCommand({
@@ -128,6 +140,20 @@ export class AwsCognitoAccountGateway implements CognitoAccountGateway {
         Username: input.email,
         Password: input.password,
         Permanent: true
+      })
+    );
+    await this.client.send(
+      new AdminUpdateUserAttributesCommand({
+        UserPoolId: this.config.COGNITO_USER_POOL_ID,
+        Username: input.email,
+        UserAttributes: [{ Name: "email_verified", Value: "true" }]
+      })
+    );
+    await this.client.send(
+      new AdminAddUserToGroupCommand({
+        UserPoolId: this.config.COGNITO_USER_POOL_ID,
+        Username: input.email,
+        GroupName: "ASSESSMENT_CLIENT"
       })
     );
   }
