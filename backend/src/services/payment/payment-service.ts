@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { log } from "../../shared/logger";
 import type { QuickBooksInvoiceStatus } from "../agreement/quickbooks-client";
 
 export type PaymentSessionStatus =
@@ -44,8 +45,21 @@ export interface PaymentRepository {
   findSessionByInvoiceId(invoiceId: string): Promise<PaymentSession | null>;
   findOpenInvoiceSessions(limit: number): Promise<PaymentSession[]>;
   recordStillOpen(sessionId: string, balance: number, checkedAt: Date): Promise<void>;
-  recordPaidVerified(sessionId: string, balance: number, checkedAt: Date): Promise<void>;
+  recordPaidVerified(
+    sessionId: string,
+    balance: number,
+    checkedAt: Date
+  ): Promise<{ transitioned: boolean; session: PaymentSession }>;
   recordVerificationFailure(sessionId: string, message: string, checkedAt: Date): Promise<void>;
+  recordPaymentConfirmationEmail(input: {
+    sessionId: string;
+    recipientEmail: string;
+    status: "SENT" | "FAILED" | "SKIPPED";
+    providerMessageId?: string;
+    failureReason?: string;
+    sentAt: Date;
+  }): Promise<void>;
+  shouldSendPaymentConfirmation(sessionId: string): Promise<boolean>;
   findLatestInvoiceResendAt(sessionId: string): Promise<Date | null>;
   recordInvoiceResend(input: {
     sessionId: string;
@@ -69,6 +83,21 @@ export interface InvoiceStatusGateway {
 
 export interface PaymentSupportNotifier {
   sendPaymentSupport(input: { sessionId: string; email: string; firstName: string; phone: string; assessmentYear: number; invoiceNumber?: string; balance?: number | null; amount: number; statusUrl: string }): Promise<void>;
+}
+
+export interface PaymentConfirmationNotifier {
+  sendPaymentConfirmed(input: {
+    sessionId: string;
+    email: string;
+    firstName: string;
+    assessmentYear: number;
+    invoiceNumber?: string;
+    continueUrl: string;
+  }): Promise<{
+    status: "SENT" | "SKIPPED";
+    providerMessageId?: string;
+    failureReason?: string;
+  }>;
 }
 
 export class PaymentFlowError extends Error {
@@ -95,7 +124,8 @@ export class PaymentStatusService {
   constructor(
     private readonly repository: PaymentRepository,
     private readonly quickBooks: InvoiceStatusGateway,
-    private readonly notifier: PaymentSupportNotifier,
+    private readonly supportNotifier: PaymentSupportNotifier,
+    private readonly confirmationNotifier: PaymentConfirmationNotifier,
     private readonly frontendUrl: string,
     private readonly now: () => Date = () => new Date()
   ) {}
@@ -153,7 +183,7 @@ export class PaymentStatusService {
     const statusUrl = `${this.frontendUrl.replace(/\/$/, "")}/assessment/status/${token}`;
     const recipientEmail = "contactus@savians.com";
     try {
-      await this.notifier.sendPaymentSupport({
+      await this.supportNotifier.sendPaymentSupport({
         sessionId: session.id, email: session.normalizedEmail, firstName: session.firstName,
         phone: session.phone, assessmentYear: session.assessmentYear, invoiceNumber: session.qbInvoiceNumber ?? undefined,
         balance: session.qbInvoiceBalance, amount: session.serviceAmount, statusUrl
@@ -204,8 +234,18 @@ export class PaymentStatusService {
       if (invoice.currency && invoice.currency !== session.currency) throw new Error(`Invoice currency mismatch: expected ${session.currency}, received ${invoice.currency}`);
       if (!moneyEquals(invoice.totalAmount, session.serviceAmount)) throw new Error(`Invoice amount mismatch: expected ${session.serviceAmount}, received ${invoice.totalAmount ?? "unknown"}`);
       if (moneyEquals(invoice.balance, 0)) {
-        await this.repository.recordPaidVerified(session.id, invoice.balance, checkedAt);
-        return { ...session, status: "PAID_VERIFIED", qbInvoiceBalance: invoice.balance, lastStatusCheckedAt: checkedAt, paymentVerifiedAt: checkedAt, accountCreationAllowed: true };
+        const verified = await this.repository.recordPaidVerified(
+          session.id,
+          invoice.balance,
+          checkedAt
+        );
+        if (
+          verified.session.accountCreationAllowed &&
+          await this.repository.shouldSendPaymentConfirmation(verified.session.id)
+        ) {
+          await this.sendPaymentConfirmation(verified.session, checkedAt);
+        }
+        return verified.session;
       }
       await this.repository.recordStillOpen(session.id, invoice.balance, checkedAt);
       return { ...session, qbInvoiceBalance: invoice.balance, lastStatusCheckedAt: checkedAt };
@@ -213,6 +253,55 @@ export class PaymentStatusService {
       const message = error instanceof Error ? error.message : "Unknown QuickBooks verification error";
       await this.repository.recordVerificationFailure(session.id, message, checkedAt);
       throw new PaymentFlowError("PAYMENT_VERIFICATION_FAILED", "Payment could not be verified safely. Please try again.", 502);
+    }
+  }
+
+  private async sendPaymentConfirmation(
+    session: PaymentSession,
+    sentAt: Date
+  ): Promise<void> {
+    const continueUrl =
+      `${this.frontendUrl.replace(/\/$/, "")}/assessment/recover?stage=account`;
+    let delivery: {
+      status: "SENT" | "FAILED" | "SKIPPED";
+      providerMessageId?: string;
+      failureReason?: string;
+    };
+
+    try {
+      delivery = await this.confirmationNotifier.sendPaymentConfirmed({
+        sessionId: session.id,
+        email: session.normalizedEmail,
+        firstName: session.firstName,
+        assessmentYear: session.assessmentYear,
+        invoiceNumber: session.qbInvoiceNumber ?? undefined,
+        continueUrl
+      });
+    } catch (error) {
+      delivery = {
+        status: "FAILED",
+        failureReason:
+          error instanceof Error
+            ? error.message
+            : "Unknown payment confirmation email error"
+      };
+    }
+
+    try {
+      await this.repository.recordPaymentConfirmationEmail({
+        sessionId: session.id,
+        recipientEmail: session.normalizedEmail,
+        status: delivery.status,
+        providerMessageId: delivery.providerMessageId,
+        failureReason: delivery.failureReason,
+        sentAt
+      });
+    } catch (error) {
+      log("error", "payment confirmation email event could not be recorded", {
+        sessionId: session.id,
+        deliveryStatus: delivery.status,
+        error: error instanceof Error ? error.message : "Unknown persistence error"
+      });
     }
   }
 

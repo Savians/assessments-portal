@@ -162,7 +162,7 @@ export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
           </p>
         ) : null}
         {details ? (
-          <div className="mt-5 flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950" role="status">
+          <div className="mt-5 flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900" role="status">
             <CheckCircle2 aria-hidden className="mt-0.5 shrink-0 text-emerald-700" size={20} />
             <div>
               <p className="font-semibold">Payment successful</p>

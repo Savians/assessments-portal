@@ -3,6 +3,7 @@ import {
   DeliveryStatus
 } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
+import { ASSESSMENT_RESUME_VERIFICATION_TYPE } from "../../shared/assessment-access-token";
 import type {
   AssessmentSessionRecord,
   AssessmentSessionRepository,
@@ -13,6 +14,8 @@ import type {
 const toRecord = (session: {
   id: string;
   normalizedEmail: string;
+  firstName: string;
+  lastName: string;
   assessmentYear: number;
   status: PrismaAssessmentStatus;
 }): AssessmentSessionRecord => ({
@@ -38,6 +41,8 @@ export class PrismaAssessmentSessionRepository implements AssessmentSessionRepos
       select: {
         id: true,
         normalizedEmail: true,
+        firstName: true,
+        lastName: true,
         assessmentYear: true,
         status: true
       }
@@ -63,6 +68,8 @@ export class PrismaAssessmentSessionRepository implements AssessmentSessionRepos
         select: {
           id: true,
           normalizedEmail: true,
+          firstName: true,
+          lastName: true,
           assessmentYear: true,
           status: true
         }
@@ -96,40 +103,38 @@ export class PrismaAssessmentSessionRepository implements AssessmentSessionRepos
     });
   }
 
-  async rotateStatusToken(
+  async createAssessmentResumeGrant(
     sessionId: string,
     tokenHash: string,
     expiresAt: Date,
     actorIp?: string,
     actorUserAgent?: string
-  ): Promise<AssessmentSessionRecord> {
-    return this.prisma.$transaction(async (transaction) => {
-      const session = await transaction.assessmentSession.update({
-        where: { id: sessionId },
+  ): Promise<void> {
+    await this.prisma.$transaction(async (transaction) => {
+      const grant = await transaction.recoveryToken.create({
         data: {
-          statusTokenHash: tokenHash,
-          statusTokenExpiresAt: expiresAt
+          sessionId,
+          tokenHash,
+          verificationType: ASSESSMENT_RESUME_VERIFICATION_TYPE,
+          expiresAt
         },
-        select: {
-          id: true,
-          normalizedEmail: true,
-          assessmentYear: true,
-          status: true
-        }
+        select: { id: true }
       });
       await transaction.auditLog.create({
         data: {
           sessionId,
-          action: "ASSESSMENT_SESSION_RESUMED",
-          entityType: "AssessmentSession",
-          entityId: sessionId,
+          action: "ASSESSMENT_RESUME_GRANT_CREATED",
+          entityType: "RecoveryToken",
+          entityId: grant.id,
           actorType: "CLIENT",
           ipAddress: actorIp,
           userAgent: actorUserAgent,
-          metadata: { assessmentYear: session.assessmentYear }
+          metadata: {
+            verificationType: ASSESSMENT_RESUME_VERIFICATION_TYPE,
+            expiresAt: expiresAt.toISOString()
+          }
         }
       });
-      return toRecord(session);
     });
   }
 

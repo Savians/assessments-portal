@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { QuickBooksInvoiceStatus } from "../agreement/quickbooks-client";
-import { PaymentFlowError, PaymentStatusService, type InvoiceStatusGateway, type PaymentRepository, type PaymentSession } from "./payment-service";
+import {
+  PaymentFlowError,
+  PaymentStatusService,
+  type InvoiceStatusGateway,
+  type PaymentConfirmationNotifier,
+  type PaymentRepository,
+  type PaymentSession
+} from "./payment-service";
 
 class Repo implements PaymentRepository {
   session: PaymentSession = {
@@ -23,14 +30,70 @@ class Repo implements PaymentRepository {
   failed = 0;
   invoiceResends = 0;
   supportRequests = 0;
+  paymentConfirmationEvents: Array<{
+    status: "SENT" | "FAILED" | "SKIPPED";
+    providerMessageId?: string;
+    failureReason?: string;
+  }> = [];
   latestInvoiceResendAt: Date | null = null;
   latestSupportAt: Date | null = null;
   async findSessionByTokenHash() { return this.session; }
   async findSessionByInvoiceId(invoiceId: string) { return invoiceId === this.session.qbInvoiceId ? this.session : null; }
-  async findOpenInvoiceSessions() { return [this.session]; }
+  async findOpenInvoiceSessions() {
+    if (["PAYMENT_PENDING", "PAYMENT_VERIFYING"].includes(this.session.status)) {
+      return [this.session];
+    }
+    if (
+      [
+        "PAID_VERIFIED",
+        "ACCOUNT_INVITED",
+        "ACCOUNT_CREATED",
+        "PROFILE_IN_PROGRESS",
+        "PROFILE_COMPLETED",
+        "DOCUMENTS_IN_PROGRESS",
+        "DOCUMENTS_SUBMITTED",
+        "IN_PROGRESS",
+        "COMPLETED"
+      ].includes(this.session.status) &&
+      this.session.accountCreationAllowed &&
+      await this.shouldSendPaymentConfirmation(this.session.id)
+    ) {
+      return [this.session];
+    }
+    return [];
+  }
   async recordStillOpen(_sessionId: string, balance: number, checkedAt: Date) { this.stillOpen++; this.session.qbInvoiceBalance = balance; this.session.lastStatusCheckedAt = checkedAt; }
-  async recordPaidVerified(_sessionId: string, balance: number, checkedAt: Date) { this.paid++; this.session.status = "PAID_VERIFIED"; this.session.qbInvoiceBalance = balance; this.session.lastStatusCheckedAt = checkedAt; this.session.paymentVerifiedAt = checkedAt; this.session.accountCreationAllowed = true; }
+  async recordPaidVerified(_sessionId: string, balance: number, checkedAt: Date) {
+    const transitioned = [
+      "INVOICE_CREATED",
+      "INVOICE_SENT",
+      "PAYMENT_PENDING",
+      "PAYMENT_VERIFYING"
+    ].includes(this.session.status);
+    if (transitioned) {
+      this.paid++;
+      this.session.status = "PAID_VERIFIED";
+      this.session.paymentVerifiedAt = checkedAt;
+      this.session.accountCreationAllowed = true;
+    }
+    this.session.qbInvoiceBalance = balance;
+    this.session.lastStatusCheckedAt = checkedAt;
+    return { transitioned, session: this.session };
+  }
   async recordVerificationFailure() { this.failed++; }
+  async recordPaymentConfirmationEmail(input: Parameters<PaymentRepository["recordPaymentConfirmationEmail"]>[0]) {
+    this.paymentConfirmationEvents.splice(0, this.paymentConfirmationEvents.length, {
+      status: input.status,
+      providerMessageId: input.providerMessageId,
+      failureReason: input.failureReason
+    });
+  }
+  async shouldSendPaymentConfirmation(_sessionId: string) {
+    void _sessionId;
+    return !this.paymentConfirmationEvents.some(
+      (event) => event.status === "SENT"
+    );
+  }
   async findLatestInvoiceResendAt() { return this.latestInvoiceResendAt; }
   async recordInvoiceResend(input: Parameters<PaymentRepository["recordInvoiceResend"]>[0]) {
     this.invoiceResends++;
@@ -51,19 +114,49 @@ class Qbo implements InvoiceStatusGateway {
   }
 }
 
+class ConfirmationNotifier implements PaymentConfirmationNotifier {
+  calls = 0;
+  mode: "SENT" | "SKIPPED" | "FAILED" = "SENT";
+  inputs: Array<Parameters<PaymentConfirmationNotifier["sendPaymentConfirmed"]>[0]> = [];
+
+  async sendPaymentConfirmed(
+    input: Parameters<PaymentConfirmationNotifier["sendPaymentConfirmed"]>[0]
+  ): Promise<{
+    status: "SENT" | "SKIPPED";
+    providerMessageId?: string;
+    failureReason?: string;
+  }> {
+    this.calls++;
+    this.inputs.push(input);
+    if (this.mode === "FAILED") throw new Error("Resend timed out");
+    if (this.mode === "SKIPPED") {
+      return {
+        status: "SKIPPED",
+        failureReason: "Email is disabled"
+      };
+    }
+    return {
+      status: "SENT",
+      providerMessageId: "resend-payment-1"
+    };
+  }
+}
+
 const token = "a".repeat(43);
 const build = () => {
   const repo = new Repo();
   const qbo = new Qbo();
+  const confirmation = new ConfirmationNotifier();
   let supportNotices = 0;
   const service = new PaymentStatusService(
     repo,
     qbo,
     { sendPaymentSupport: async () => { supportNotices++; } },
+    confirmation,
     "https://assessments.savians.com",
     () => new Date("2026-07-05T12:00:00Z")
   );
-  return { repo, qbo, service, supportNotices: () => supportNotices };
+  return { repo, qbo, confirmation, service, supportNotices: () => supportNotices };
 };
 
 describe("PaymentStatusService", () => {
@@ -78,12 +171,164 @@ describe("PaymentStatusService", () => {
   });
 
   it("marks paid only for the exact invoice amount, currency, and zero balance", async () => {
-    const { repo, qbo, service } = build();
+    const { repo, qbo, confirmation, service } = build();
     qbo.invoice = { id: "invoice-1", number: "1001", balance: 0, totalAmount: 2997, currency: "USD" };
     const result = await service.refresh(token);
     expect(result.status).toBe("PAID_VERIFIED");
     expect(result.accountCreationAllowed).toBe(true);
     expect(repo.paid).toBe(1);
+    expect(confirmation.calls).toBe(1);
+    expect(confirmation.inputs[0]).toMatchObject({
+      sessionId: "session-1",
+      continueUrl: "https://assessments.savians.com/assessment/recover?stage=account"
+    });
+    expect(repo.paymentConfirmationEvents).toEqual([
+      {
+        status: "SENT",
+        providerMessageId: "resend-payment-1",
+        failureReason: undefined
+      }
+    ]);
+  });
+
+  it("sends payment confirmation once across manual refresh, webhook, and scheduler reconciliation", async () => {
+    const { repo, qbo, confirmation, service } = build();
+    qbo.invoice = {
+      id: "invoice-1",
+      number: "1001",
+      balance: 0,
+      totalAmount: 2997,
+      currency: "USD"
+    };
+
+    await service.refresh(token);
+    await service.reconcileInvoiceId("invoice-1");
+    await service.reconcileOpenInvoices();
+
+    expect(repo.paid).toBe(1);
+    expect(confirmation.calls).toBe(1);
+    expect(repo.paymentConfirmationEvents).toHaveLength(1);
+    expect(repo.paymentConfirmationEvents[0]?.status).toBe("SENT");
+  });
+
+  it("keeps payment verification non-blocking and retries a failed confirmation idempotently", async () => {
+    const { repo, qbo, confirmation, service } = build();
+    qbo.invoice = {
+      id: "invoice-1",
+      number: "1001",
+      balance: 0,
+      totalAmount: 2997,
+      currency: "USD"
+    };
+    confirmation.mode = "FAILED";
+
+    await expect(service.refresh(token)).resolves.toMatchObject({
+      status: "PAID_VERIFIED",
+      accountCreationAllowed: true
+    });
+    expect(repo.failed).toBe(0);
+    expect(repo.paymentConfirmationEvents).toEqual([
+      {
+        status: "FAILED",
+        providerMessageId: undefined,
+        failureReason: "Resend timed out"
+      }
+    ]);
+
+    confirmation.mode = "SENT";
+    await expect(service.reconcileOpenInvoices()).resolves.toMatchObject({
+      checked: 1,
+      verifiedPaid: 1,
+      failed: 0
+    });
+    expect(repo.paid).toBe(1);
+    expect(confirmation.calls).toBe(2);
+    expect(repo.paymentConfirmationEvents).toHaveLength(1);
+    expect(repo.paymentConfirmationEvents[0]?.status).toBe("SENT");
+  });
+
+  it("retries a skipped confirmation after email delivery is configured", async () => {
+    const { repo, qbo, confirmation, service } = build();
+    qbo.invoice = {
+      id: "invoice-1",
+      number: "1001",
+      balance: 0,
+      totalAmount: 2997,
+      currency: "USD"
+    };
+    confirmation.mode = "SKIPPED";
+
+    await expect(service.refresh(token)).resolves.toMatchObject({
+      status: "PAID_VERIFIED"
+    });
+    confirmation.mode = "SENT";
+    await expect(service.reconcileOpenInvoices()).resolves.toMatchObject({
+      checked: 1,
+      verifiedPaid: 1,
+      failed: 0
+    });
+    expect(confirmation.calls).toBe(2);
+    expect(repo.paymentConfirmationEvents[0]).toEqual({
+      status: "SENT",
+      providerMessageId: "resend-payment-1",
+      failureReason: undefined
+    });
+  });
+
+  it.each([
+    "ACCOUNT_INVITED",
+    "ACCOUNT_CREATED",
+    "PROFILE_IN_PROGRESS",
+    "PROFILE_COMPLETED",
+    "DOCUMENTS_IN_PROGRESS",
+    "DOCUMENTS_SUBMITTED",
+    "IN_PROGRESS",
+    "COMPLETED"
+  ] as const)("retries a missing confirmation without downgrading %s", async (status) => {
+    const { repo, qbo, confirmation, service } = build();
+    repo.session.status = status;
+    repo.session.accountCreationAllowed = true;
+    repo.session.paymentVerifiedAt = new Date("2026-07-05T11:00:00Z");
+    qbo.invoice = {
+      id: "invoice-1",
+      number: "1001",
+      balance: 0,
+      totalAmount: 2997,
+      currency: "USD"
+    };
+
+    await expect(service.reconcileInvoiceId("invoice-1")).resolves.toMatchObject({
+      status,
+      accountCreationAllowed: true
+    });
+    expect(repo.session.status).toBe(status);
+    expect(repo.paid).toBe(0);
+    expect(confirmation.calls).toBe(1);
+    expect(repo.paymentConfirmationEvents[0]?.status).toBe("SENT");
+  });
+
+  it("does not resend a completed confirmation after account setup advances", async () => {
+    const { repo, qbo, confirmation, service } = build();
+    repo.session.status = "ACCOUNT_INVITED";
+    repo.session.accountCreationAllowed = true;
+    repo.paymentConfirmationEvents.push({
+      status: "SENT",
+      providerMessageId: "resend-payment-1"
+    });
+    qbo.invoice = {
+      id: "invoice-1",
+      number: "1001",
+      balance: 0,
+      totalAmount: 2997,
+      currency: "USD"
+    };
+
+    await expect(service.reconcileInvoiceId("invoice-1")).resolves.toMatchObject({
+      status: "ACCOUNT_INVITED"
+    });
+    expect(repo.session.status).toBe("ACCOUNT_INVITED");
+    expect(confirmation.calls).toBe(0);
+    expect(repo.paymentConfirmationEvents).toHaveLength(1);
   });
 
   it("does not unlock access when QuickBooks returns a mismatched amount", async () => {

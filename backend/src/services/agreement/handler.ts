@@ -3,9 +3,11 @@ import { ZodError } from "zod";
 import { getApplicationSecrets, persistQuickBooksRefreshToken } from "../../shared/application-secrets";
 import { log } from "../../shared/logger";
 import { getPrismaClient } from "../../shared/prisma-client";
+import { agreementDownloadRedirect } from "./agreement-download-response";
 import { AgreementFlowError, AgreementService } from "./agreement-service";
 import { PrismaAgreementRepository } from "./prisma-agreement-repository";
 import { IntuitQuickBooksGateway, type QuickBooksGateway } from "./quickbooks-client";
+import { ResendAgreementConfirmationNotifier } from "./resend-agreement-confirmation-notifier";
 import { S3AgreementPdfProvider } from "./s3-agreement-pdf-provider";
 
 const json = (statusCode: number, body: unknown) => ({ statusCode, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" }, body: JSON.stringify(body) });
@@ -27,16 +29,25 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
     const service = new AgreementService(
       repository,
       new S3AgreementPdfProvider(process.env.S3_DOCUMENTS_BUCKET ?? ""),
-      quickBooks
+      quickBooks,
+      new ResendAgreementConfirmationNotifier(secrets)
     );
     const method = event.requestContext.http.method;
     if (method === "GET") {
       const token = event.pathParameters?.token;
       if (!token) throw new AgreementFlowError("INVALID_TOKEN", "Agreement token is required.", 400);
+      if (event.rawPath.endsWith("/download")) {
+        const download = await service.download(token);
+        return agreementDownloadRedirect(download.url);
+      }
       return json(200, await service.load(token));
     }
     if (method === "POST" && event.rawPath.endsWith("/agreement/sign")) {
-      return json(200, await service.accept(parseBody(event.body, event.isBase64Encoded), { ipAddress: event.requestContext.http.sourceIp, userAgent: event.headers["user-agent"] }));
+      return json(200, await service.accept(parseBody(event.body, event.isBase64Encoded), {
+        ipAddress: event.requestContext.http.sourceIp,
+        userAgent: event.headers["user-agent"],
+        downloadBaseUrl: process.env.FRONTEND_URL ?? "http://localhost:3000"
+      }));
     }
     return json(404, { error: "NOT_FOUND", message: "The requested agreement endpoint does not exist." });
   } catch (error) {

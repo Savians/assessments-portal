@@ -87,6 +87,9 @@ export interface AgreementDetailsResponse {
 
 const apiBaseUrl = () => process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
+export const agreementDownloadApiUrl = (token: string): string =>
+  `${apiBaseUrl()}/api/assessment/agreement/${encodeURIComponent(token)}/download`;
+
 export async function loadAgreement(token: string): Promise<AgreementDetailsResponse> {
   const response = await fetch(`${apiBaseUrl()}/api/assessment/agreement/${encodeURIComponent(token)}`, { cache: "no-store" });
   const body = (await response.json()) as AgreementDetailsResponse | ApiErrorBody;

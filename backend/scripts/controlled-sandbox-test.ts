@@ -8,6 +8,7 @@ import { getApplicationSecrets } from "../src/shared/application-secrets";
 import { AgreementService } from "../src/services/agreement/agreement-service";
 import { PrismaAgreementRepository } from "../src/services/agreement/prisma-agreement-repository";
 import { IntuitQuickBooksGateway } from "../src/services/agreement/quickbooks-client";
+import { ResendAgreementConfirmationNotifier } from "../src/services/agreement/resend-agreement-confirmation-notifier";
 
 const backend = path.resolve(__dirname, "..");
 const envPath = path.join(backend, ".env");
@@ -72,10 +73,22 @@ async function main() {
 
     const repository = new PrismaAgreementRepository(prisma);
     const qbo = new IntuitQuickBooksGateway(secrets, persistRotatedToken);
-    const service = new AgreementService(repository, { getReadUrl: async () => "" }, qbo);
+    const service = new AgreementService(
+      repository,
+      { getReadUrl: async () => "" },
+      qbo,
+      new ResendAgreementConfirmationNotifier(secrets)
+    );
     let result;
     try {
-      result = await service.accept({ token, typedSignatureName: "Arpit Assessment Sandbox Test", acknowledgementAccepted: true }, { ipAddress: "127.0.0.1", userAgent: "savians-assessment-controlled-test/1.0" });
+      result = await service.accept(
+        { token, typedSignatureName: "Arpit Assessment Sandbox Test", acknowledgementAccepted: true },
+        {
+          ipAddress: "127.0.0.1",
+          userAgent: "savians-assessment-controlled-test/1.0",
+          downloadBaseUrl: process.env.FRONTEND_URL ?? "http://localhost:3000"
+        }
+      );
     } catch (error) {
       const failure = await prisma.auditLog.findFirst({
         where: { sessionId: session.id, action: "AGREEMENT_BILLING_FAILED" },

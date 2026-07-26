@@ -8,7 +8,11 @@ import {
   type AdminGetUserCommandOutput
 } from "@aws-sdk/client-cognito-identity-provider";
 import { z } from "zod";
-import type { CognitoAccountGateway } from "./account-auth-service";
+import {
+  CognitoMutationError,
+  type CognitoAccountGateway,
+  type CognitoMutationOperation
+} from "./account-auth-service";
 
 const configSchema = z.object({
   COGNITO_USER_POOL_ID: z.string().min(1)
@@ -22,6 +26,22 @@ const isUserNotFound = (error: unknown): boolean =>
 export class AwsCognitoAccountGateway implements CognitoAccountGateway {
   private readonly client = new CognitoIdentityProviderClient({});
   private readonly config = configSchema.parse(process.env);
+
+  private async getUserBeforeMutation(
+    email: string,
+    operation: CognitoMutationOperation
+  ): Promise<AdminGetUserCommandOutput> {
+    try {
+      return await this.client.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.config.COGNITO_USER_POOL_ID,
+          Username: email
+        })
+      );
+    } catch (error) {
+      throw new CognitoMutationError(operation, "BEFORE_MUTATION", error);
+    }
+  }
 
   async accountExists(email: string): Promise<boolean> {
     try {
@@ -102,75 +122,85 @@ export class AwsCognitoAccountGateway implements CognitoAccountGateway {
     email: string;
     confirmationCode: string;
   }): Promise<{ userSub: string; emailVerified: boolean }> {
-    await this.client.send(
-      new AdminUpdateUserAttributesCommand({
-        UserPoolId: this.config.COGNITO_USER_POOL_ID,
-        Username: input.email,
-        UserAttributes: [{ Name: "email_verified", Value: "true" }]
-      })
-    );
+    await this.getUserBeforeMutation(input.email, "CONFIRM_SIGN_UP");
+    try {
+      await this.client.send(
+        new AdminUpdateUserAttributesCommand({
+          UserPoolId: this.config.COGNITO_USER_POOL_ID,
+          Username: input.email,
+          UserAttributes: [{ Name: "email_verified", Value: "true" }]
+        })
+      );
 
-    const user = await this.client.send(
-      new AdminGetUserCommand({
-        UserPoolId: this.config.COGNITO_USER_POOL_ID,
-        Username: input.email
-      })
-    );
-    const userSub = user.UserAttributes?.find((attribute) => attribute.Name === "sub")?.Value;
-    const emailVerified =
-      user.UserAttributes?.find((attribute) => attribute.Name === "email_verified")?.Value ===
-      "true";
-    if (!userSub) throw new Error("Cognito confirmed user is missing sub");
-    if (!emailVerified) throw new Error("Cognito confirmed user email is not verified");
+      const user = await this.client.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.config.COGNITO_USER_POOL_ID,
+          Username: input.email
+        })
+      );
+      const userSub = user.UserAttributes?.find((attribute) => attribute.Name === "sub")?.Value;
+      const emailVerified =
+        user.UserAttributes?.find((attribute) => attribute.Name === "email_verified")?.Value ===
+        "true";
+      if (!userSub) throw new Error("Cognito confirmed user is missing sub");
+      if (!emailVerified) throw new Error("Cognito confirmed user email is not verified");
 
-    await this.client.send(
-      new AdminAddUserToGroupCommand({
-        UserPoolId: this.config.COGNITO_USER_POOL_ID,
-        Username: input.email,
-        GroupName: "ASSESSMENT_CLIENT"
-      })
-    );
-    return { userSub, emailVerified };
+      await this.client.send(
+        new AdminAddUserToGroupCommand({
+          UserPoolId: this.config.COGNITO_USER_POOL_ID,
+          Username: input.email,
+          GroupName: "ASSESSMENT_CLIENT"
+        })
+      );
+      return { userSub, emailVerified };
+    } catch (error) {
+      throw new CognitoMutationError("CONFIRM_SIGN_UP", "MUTATION_ATTEMPTED", error);
+    }
   }
 
   async setPermanentPassword(input: {
     email: string;
     password: string;
   }): Promise<{ userSub: string; emailVerified: boolean }> {
-    await this.client.send(
-      new AdminSetUserPasswordCommand({
-        UserPoolId: this.config.COGNITO_USER_POOL_ID,
-        Username: input.email,
-        Password: input.password,
-        Permanent: true
-      })
-    );
-    await this.client.send(
-      new AdminUpdateUserAttributesCommand({
-        UserPoolId: this.config.COGNITO_USER_POOL_ID,
-        Username: input.email,
-        UserAttributes: [{ Name: "email_verified", Value: "true" }]
-      })
-    );
-    const user = await this.client.send(
-      new AdminGetUserCommand({
-        UserPoolId: this.config.COGNITO_USER_POOL_ID,
-        Username: input.email
-      })
-    );
-    const userSub = user.UserAttributes?.find((attribute) => attribute.Name === "sub")?.Value;
-    const emailVerified =
-      user.UserAttributes?.find((attribute) => attribute.Name === "email_verified")?.Value ===
-      "true";
-    if (!userSub) throw new Error("Cognito recovered user is missing sub");
-    if (!emailVerified) throw new Error("Cognito recovered user email is not verified");
-    await this.client.send(
-      new AdminAddUserToGroupCommand({
-        UserPoolId: this.config.COGNITO_USER_POOL_ID,
-        Username: input.email,
-        GroupName: "ASSESSMENT_CLIENT"
-      })
-    );
-    return { userSub, emailVerified };
+    await this.getUserBeforeMutation(input.email, "SET_PERMANENT_PASSWORD");
+    try {
+      await this.client.send(
+        new AdminSetUserPasswordCommand({
+          UserPoolId: this.config.COGNITO_USER_POOL_ID,
+          Username: input.email,
+          Password: input.password,
+          Permanent: true
+        })
+      );
+      await this.client.send(
+        new AdminUpdateUserAttributesCommand({
+          UserPoolId: this.config.COGNITO_USER_POOL_ID,
+          Username: input.email,
+          UserAttributes: [{ Name: "email_verified", Value: "true" }]
+        })
+      );
+      const user = await this.client.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.config.COGNITO_USER_POOL_ID,
+          Username: input.email
+        })
+      );
+      const userSub = user.UserAttributes?.find((attribute) => attribute.Name === "sub")?.Value;
+      const emailVerified =
+        user.UserAttributes?.find((attribute) => attribute.Name === "email_verified")?.Value ===
+        "true";
+      if (!userSub) throw new Error("Cognito recovered user is missing sub");
+      if (!emailVerified) throw new Error("Cognito recovered user email is not verified");
+      await this.client.send(
+        new AdminAddUserToGroupCommand({
+          UserPoolId: this.config.COGNITO_USER_POOL_ID,
+          Username: input.email,
+          GroupName: "ASSESSMENT_CLIENT"
+        })
+      );
+      return { userSub, emailVerified };
+    } catch (error) {
+      throw new CognitoMutationError("SET_PERMANENT_PASSWORD", "MUTATION_ATTEMPTED", error);
+    }
   }
 }

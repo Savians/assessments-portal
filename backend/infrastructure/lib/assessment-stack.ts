@@ -53,6 +53,7 @@ const routes: RouteDefinition[] = [
   { service: "public", method: apigwv2.HttpMethod.POST, path: "/api/assessment/start", authenticated: false },
   { service: "public", method: apigwv2.HttpMethod.POST, path: "/api/assessment/recover", authenticated: false },
   { service: "agreement", method: apigwv2.HttpMethod.GET, path: "/api/assessment/agreement/{token}", authenticated: false },
+  { service: "agreement", method: apigwv2.HttpMethod.GET, path: "/api/assessment/agreement/{token}/download", authenticated: false },
   { service: "agreement", method: apigwv2.HttpMethod.POST, path: "/api/assessment/agreement/sign", authenticated: false },
   { service: "payment", method: apigwv2.HttpMethod.GET, path: "/api/assessment/status/{token}", authenticated: false },
   { service: "payment", method: apigwv2.HttpMethod.POST, path: "/api/assessment/refresh-payment-status", authenticated: false },

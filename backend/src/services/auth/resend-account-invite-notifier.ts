@@ -11,7 +11,7 @@ export class ResendAccountInviteNotifier implements AccountInviteNotifier {
     return `Savians Tax Advisors <${this.secrets.EMAIL_FROM}>`;
   }
 
-  async send(input: { email: string; firstName: string; setupUrl: string; assessmentYear: number }): Promise<void> {
+  async send(input: { email: string; firstName: string; setupUrl: string; assessmentYear: number }): Promise<{ providerMessageId?: string }> {
     if (!this.secrets.EMAIL_ENABLED || !this.secrets.RESEND_API_KEY) {
       throw new Error("Resend account invite email is not configured");
     }
@@ -25,10 +25,14 @@ export class ResendAccountInviteNotifier implements AccountInviteNotifier {
       html: `<p>Hi ${escapeHtml(input.firstName)},</p><p>Your payment has been verified. You can now create your Savians Assessment account.</p><p><a href="${escapeHtml(input.setupUrl)}" style="display:inline-block;background:#14235c;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700">Create Account</a></p><p>This setup link expires in 7 days.</p>`
     });
     if (result.error) throw new Error(`Resend account invite email failed: ${result.error.message}`);
+    return { providerMessageId: result.data?.id };
   }
 
-  async sendVerificationCode(input: { email: string; firstName: string; code: string; assessmentYear: number }): Promise<void> {
-    if (!this.secrets.EMAIL_ENABLED || !this.secrets.RESEND_API_KEY) {
+  async sendVerificationCode(input: { email: string; firstName: string; code: string; assessmentYear: number }): Promise<{ status: "SENT" | "SKIPPED"; providerMessageId?: string }> {
+    if (!this.secrets.EMAIL_ENABLED) {
+      return { status: "SKIPPED" };
+    }
+    if (!this.secrets.RESEND_API_KEY) {
       throw new Error("Resend account verification email is not configured");
     }
     const resend = new Resend(this.secrets.RESEND_API_KEY);
@@ -41,6 +45,7 @@ export class ResendAccountInviteNotifier implements AccountInviteNotifier {
       html: `<p>Hi ${escapeHtml(input.firstName)},</p><p>Your Savians Assessment verification code is:</p><p style="font-size:24px;font-weight:700;letter-spacing:4px">${escapeHtml(input.code)}</p><p>This code expires in 15 minutes.</p>`
     });
     if (result.error) throw new Error(`Resend account verification email failed: ${result.error.message}`);
+    return { status: "SENT", providerMessageId: result.data?.id };
   }
 
   async sendPasswordResetCode(input: { email: string; firstName: string; code: string }): Promise<{ providerMessageId?: string }> {

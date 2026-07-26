@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { AccountAuthError, AccountAuthService, type AccountAuthRepository, type AccountInvite, type AccountInviteNotifier, type CognitoAccountGateway, type PaidSession } from "./account-auth-service";
+import {
+  AccountAuthError,
+  AccountAuthService,
+  CognitoMutationError,
+  type AccountAuthRepository,
+  type AccountInvite,
+  type AccountInviteNotifier,
+  type CognitoAccountGateway,
+  type PaidSession
+} from "./account-auth-service";
 
 class Repo implements AccountAuthRepository {
   session: PaidSession = {
@@ -14,22 +23,58 @@ class Repo implements AccountAuthRepository {
     statusTokenExpiresAt: new Date("2026-08-01T00:00:00Z")
   };
   invite?: AccountInvite;
-  emails = 0; linked = 0; recoveredLinks = 0; revoked = 0; invited = 0; verificationCodes = 0; verificationUsed = 0; verificationActive = true; passwordResetSubjectExists = true;
+  invites = new Map<string, AccountInvite>();
+  emails = 0; linked = 0; recoveredLinks = 0; revoked = 0; revokedCandidates = 0; invited = 0; verificationCodes = 0; verificationUsed = 0; verificationRevocations = 0; verificationActive = true; recoveryReleases = 0; passwordResetSubjectExists = true;
+  failInviteEmailAudit = false;
+  failAccountVerificationEmailAudit = false;
+  failPasswordResetEmailAudit = false;
+  inviteEmails: Array<Parameters<AccountAuthRepository["recordInviteEmail"]>[0]> = [];
+  accountVerificationEmails: Array<Parameters<AccountAuthRepository["recordAccountVerificationEmail"]>[0]> = [];
   latestVerificationCreatedAt: Date | null = null;
   linkedInput?: Parameters<AccountAuthRepository["linkConfirmedAccount"]>[0];
   async findSessionByStatusTokenHash() { return this.session; }
   async createAccountInvite(input: { sessionId: string; tokenHash: string; expiresAt: Date }) {
     this.invite = { id: "invite-1", sessionId: input.sessionId, tokenHash: input.tokenHash, expiresAt: input.expiresAt, session: this.session };
+    this.invites.set(input.tokenHash, this.invite);
   }
-  async revokeUnusedInvites() { this.revoked++; }
+  async revokeUnusedInvitesExcept(_sessionId: string, tokenHash: string, at: Date) {
+    this.revoked++;
+    for (const invite of this.invites.values()) {
+      if (invite.tokenHash !== tokenHash && !invite.usedAt && !invite.revokedAt) invite.revokedAt = at;
+    }
+  }
+  async revokeUnusedInviteByTokenHash(tokenHash: string, at: Date) {
+    this.revokedCandidates++;
+    const invite = this.invites.get(tokenHash);
+    if (invite && !invite.usedAt && !invite.revokedAt) invite.revokedAt = at;
+  }
   async markSessionInvited() { this.invited++; this.session.status = "ACCOUNT_INVITED"; }
-  async findInviteByTokenHash() { return this.invite ?? null; }
+  async findInviteByTokenHash(tokenHash: string) { return this.invites.get(tokenHash) ?? this.invite ?? null; }
   async linkConfirmedAccount(input: Parameters<AccountAuthRepository["linkConfirmedAccount"]>[0]) { this.linked++; this.linkedInput = input; this.session.status = "ACCOUNT_CREATED"; if (this.invite) this.invite.usedAt = input.confirmedAt; }
   async linkRecoveredAccount() { this.recoveredLinks++; this.session.status = "ACCOUNT_CREATED"; }
-  async recordInviteEmail() { this.emails++; }
-  async recordPasswordResetEmail() { this.emails++; }
-  async revokeAccountVerificationCodes() { this.verificationUsed++; }
-  async createAccountVerificationCode() { this.verificationCodes++; this.latestVerificationCreatedAt = new Date("2026-07-06T00:00:00Z"); }
+  async recordInviteEmail(input: Parameters<AccountAuthRepository["recordInviteEmail"]>[0]) {
+    if (this.failInviteEmailAudit) throw new Error("Invite audit database unavailable");
+    this.emails++;
+    this.inviteEmails.push(input);
+  }
+  async recordAccountVerificationEmail(input: Parameters<AccountAuthRepository["recordAccountVerificationEmail"]>[0]) {
+    if (this.failAccountVerificationEmailAudit) throw new Error("Verification audit database unavailable");
+    this.accountVerificationEmails.push(input);
+  }
+  async recordPasswordResetEmail() {
+    if (this.failPasswordResetEmailAudit) throw new Error("Password reset audit database unavailable");
+    this.emails++;
+  }
+  async revokeAccountVerificationCodes() {
+    this.verificationUsed++;
+    this.verificationRevocations++;
+    this.verificationActive = false;
+  }
+  async createAccountVerificationCode() {
+    this.verificationCodes++;
+    this.verificationActive = true;
+    this.latestVerificationCreatedAt = new Date("2026-07-06T00:00:00Z");
+  }
   async findLatestAccountVerificationCodeCreatedAt() { return this.latestVerificationCreatedAt; }
   async hasActiveAccountVerificationCode() { return this.verificationCodes > 0 && this.verificationActive; }
   async markAccountVerificationCodeUsed() { this.verificationUsed++; }
@@ -38,26 +83,49 @@ class Repo implements AccountAuthRepository {
       ? { sessionId: this.session.id, normalizedEmail: this.session.normalizedEmail, firstName: this.session.firstName, assessmentYear: this.session.assessmentYear }
       : null;
   }
-  async consumeRecoveryCode() { if (this.verificationActive) this.verificationUsed++; return this.verificationActive; }
+  async claimRecoveryCode() {
+    if (!this.verificationActive) return false;
+    this.verificationActive = false;
+    this.verificationUsed++;
+    return true;
+  }
+  async releaseRecoveryCodeClaim() {
+    this.verificationActive = true;
+    this.recoveryReleases++;
+  }
 }
 
 class Cognito implements CognitoAccountGateway {
-  signups = 0; confirms = 0; passwordSets = 0; verified = true; exists = true; accountStatus: "PASSWORD_SET" | "EXISTING_ACCOUNT" = "PASSWORD_SET";
+  signups = 0; confirms = 0; passwordSets = 0; verified = true; exists = true;
+  confirmError?: Error;
+  passwordError?: Error;
+  accountStatus: "PASSWORD_SET" | "EXISTING_ACCOUNT" = "PASSWORD_SET";
   async accountExists() { return this.exists; }
   async prepareAccount() { this.signups++; return { status: this.accountStatus }; }
-  async confirmSignUp() { this.confirms++; return { userSub: "sub-1", emailVerified: this.verified }; }
+  async confirmSignUp() {
+    this.confirms++;
+    if (this.confirmError) throw this.confirmError;
+    return { userSub: "sub-1", emailVerified: this.verified };
+  }
   async setPermanentPassword() {
     this.passwordSets++;
+    if (this.passwordError) throw this.passwordError;
     return { userSub: "sub-1", emailVerified: this.verified };
   }
 }
 
 class Notifier implements AccountInviteNotifier {
-  sends = 0; codes = 0; passwordResetCodes = 0; failVerification = false; failPasswordReset = false;
-  async send() { this.sends++; }
+  sends = 0; codes = 0; passwordResetCodes = 0; failInvite = false; failVerification = false; skipVerification = false; failPasswordReset = false;
+  async send() {
+    this.sends++;
+    if (this.failInvite) throw new Error("Resend rejected the invite");
+    return { providerMessageId: "invite-email-1" };
+  }
   async sendVerificationCode() {
     this.codes++;
     if (this.failVerification) throw new Error("Resend rejected the verification message");
+    if (this.skipVerification) return { status: "SKIPPED" as const };
+    return { status: "SENT" as const, providerMessageId: "verification-email-1" };
   }
   async sendPasswordResetCode() {
     this.passwordResetCodes++;
@@ -83,6 +151,10 @@ describe("AccountAuthService", () => {
     expect(repo.invited).toBe(1);
     expect(notifier.sends).toBe(1);
     expect(repo.invite?.expiresAt.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+    expect(repo.inviteEmails).toEqual([expect.objectContaining({
+      status: "SENT",
+      providerMessageId: "invite-email-1"
+    })]);
   });
 
   it("starts browser-based setup without sending an account setup email", async () => {
@@ -94,6 +166,36 @@ describe("AccountAuthService", () => {
     expect(repo.invited).toBe(1);
     expect(notifier.sends).toBe(0);
     expect(repo.emails).toBe(0);
+  });
+
+  it("keeps a previously issued invite usable when replacement email delivery fails", async () => {
+    const { repo, notifier, service } = build();
+    const original = await service.startBrowserInvite({ token: statusToken });
+    const originalToken = original.nextUrl.split("/").at(-1);
+    notifier.failInvite = true;
+    repo.failInviteEmailAudit = true;
+
+    await expect(service.reissueInvite({ token: statusToken }))
+      .rejects.toMatchObject({ code: "INVITE_EMAIL_FAILED", statusCode: 502 });
+
+    await expect(service.validateInvite({ inviteToken: originalToken }))
+      .resolves.toMatchObject({ status: "INVITE_ACTIVE", email: "client@example.com" });
+    expect(repo.revokedCandidates).toBe(1);
+  });
+
+  it("accepts a delivered replacement invite and retires the old invite when audit persistence fails", async () => {
+    const { repo, notifier, service } = build();
+    const original = await service.startBrowserInvite({ token: statusToken });
+    const originalToken = original.nextUrl.split("/").at(-1);
+    repo.failInviteEmailAudit = true;
+
+    await expect(service.reissueInvite({ token: statusToken }))
+      .resolves.toEqual({ ok: true });
+
+    expect(notifier.sends).toBe(1);
+    expect(repo.invite?.revokedAt).toBeFalsy();
+    await expect(service.validateInvite({ inviteToken: originalToken }))
+      .rejects.toMatchObject({ code: "INVITE_REVOKED", statusCode: 409 });
   });
 
   it("rejects invite creation for unpaid sessions", async () => {
@@ -116,6 +218,93 @@ describe("AccountAuthService", () => {
     expect(cognito.confirms).toBe(1);
     expect(repo.linked).toBe(1);
     expect(repo.linkedInput?.verificationTokenHash).toBeTruthy();
+    expect(repo.accountVerificationEmails).toEqual([expect.objectContaining({
+      status: "SENT",
+      providerMessageId: "verification-email-1",
+      recipientEmail: "client@example.com"
+    })]);
+    expect(repo.verificationActive).toBe(false);
+  });
+
+  it("allows only one concurrent redemption of an account verification code", async () => {
+    const { repo, cognito, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    await service.startSetup({
+      inviteToken: "invite-token".repeat(4),
+      password: "StrongPass123!"
+    });
+    const input = {
+      inviteToken: "invite-token".repeat(4),
+      confirmationCode: "123456"
+    };
+
+    const results = await Promise.allSettled([
+      service.confirm(input),
+      service.confirm(input)
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(cognito.confirms).toBe(1);
+    expect(repo.linked).toBe(1);
+    expect(repo.verificationActive).toBe(false);
+  });
+
+  it("releases an account verification claim after a definitely pre-mutation Cognito failure", async () => {
+    const { repo, cognito, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    await service.startSetup({
+      inviteToken: "invite-token".repeat(4),
+      password: "StrongPass123!"
+    });
+    cognito.confirmError = new CognitoMutationError(
+      "CONFIRM_SIGN_UP",
+      "BEFORE_MUTATION",
+      new Error("Cognito confirmation preflight failed")
+    );
+    const input = {
+      inviteToken: "invite-token".repeat(4),
+      confirmationCode: "123456"
+    };
+
+    await expect(service.confirm(input)).rejects.toThrow("Cognito confirmation preflight failed");
+    expect(repo.recoveryReleases).toBe(1);
+    expect(repo.verificationActive).toBe(true);
+
+    cognito.confirmError = undefined;
+    await expect(service.confirm(input)).resolves.toEqual({
+      status: "ACCOUNT_CREATED",
+      nextUrl: "/portal/dashboard"
+    });
+    expect(cognito.confirms).toBe(2);
+    expect(repo.linked).toBe(1);
+  });
+
+  it("keeps an account verification claim consumed after a mutation-attempted failure", async () => {
+    const { repo, cognito, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    await service.startSetup({
+      inviteToken: "invite-token".repeat(4),
+      password: "StrongPass123!"
+    });
+    cognito.confirmError = new CognitoMutationError(
+      "CONFIRM_SIGN_UP",
+      "MUTATION_ATTEMPTED",
+      new Error("Cognito post-confirm operation failed")
+    );
+    const input = {
+      inviteToken: "invite-token".repeat(4),
+      confirmationCode: "123456"
+    };
+
+    await expect(service.confirm(input)).rejects.toThrow("Cognito post-confirm operation failed");
+    expect(repo.recoveryReleases).toBe(0);
+    expect(repo.verificationActive).toBe(false);
+
+    cognito.confirmError = undefined;
+    await expect(service.confirm(input))
+      .rejects.toMatchObject({ code: "INVALID_VERIFICATION_CODE", statusCode: 400 });
+    expect(cognito.confirms).toBe(1);
   });
 
   it("returns existing confirmed users to sign-in without resetting their password or sending a new-account code", async () => {
@@ -149,11 +338,50 @@ describe("AccountAuthService", () => {
     const { repo, notifier, service } = build();
     await service.reissueInvite({ token: statusToken });
     notifier.failVerification = true;
+    repo.failAccountVerificationEmailAudit = true;
+    await expect(service.startSetup({
+      inviteToken: "invite-token".repeat(4),
+      password: "StrongPass123!"
+    })).rejects.toMatchObject({ code: "VERIFICATION_EMAIL_FAILED", statusCode: 502 });
+    expect(repo.verificationRevocations).toBe(2);
+    expect(repo.verificationActive).toBe(false);
+    expect(repo.accountVerificationEmails).toEqual([]);
+  });
+
+  it("keeps a provider-accepted verification code active when audit persistence fails", async () => {
+    const { repo, notifier, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    repo.failAccountVerificationEmailAudit = true;
+
+    await expect(service.startSetup({
+      inviteToken: "invite-token".repeat(4),
+      password: "StrongPass123!"
+    })).resolves.toEqual({
+      status: "CONFIRMATION_REQUIRED",
+      email: "client@example.com"
+    });
+
+    expect(notifier.codes).toBe(1);
+    expect(repo.verificationRevocations).toBe(1);
+    expect(repo.verificationActive).toBe(true);
+    expect(repo.accountVerificationEmails).toEqual([]);
+  });
+
+  it("audits skipped account verification delivery and revokes the unusable code", async () => {
+    const { repo, notifier, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    notifier.skipVerification = true;
     await expect(service.startSetup({
       inviteToken: "invite-token".repeat(4),
       password: "StrongPass123!"
     })).rejects.toMatchObject({ code: "VERIFICATION_EMAIL_FAILED", statusCode: 502 });
     expect(repo.verificationUsed).toBeGreaterThan(0);
+    expect(repo.accountVerificationEmails).toEqual([expect.objectContaining({
+      status: "SKIPPED",
+      recipientEmail: "client@example.com"
+    })]);
+    expect(repo.verificationRevocations).toBe(2);
+    expect(repo.verificationActive).toBe(false);
   });
 
   it("links an existing confirmed account only when authenticated claims match the assessment email", async () => {
@@ -178,9 +406,14 @@ describe("AccountAuthService", () => {
   it("does not link an account when Cognito email verification is incomplete", async () => {
     const { repo, cognito, service } = build();
     await service.reissueInvite({ token: statusToken });
+    await service.startSetup({
+      inviteToken: "invite-token".repeat(4),
+      password: "StrongPass123!"
+    });
     cognito.verified = false;
     await expect(service.confirm({ inviteToken: "invite-token".repeat(4), confirmationCode: "123456" })).rejects.toBeInstanceOf(AccountAuthError);
     expect(repo.linked).toBe(0);
+    expect(repo.verificationActive).toBe(false);
   });
 
   it("does not link an account when the emailed verification code is invalid", async () => {
@@ -222,12 +455,26 @@ describe("AccountAuthService", () => {
   it("reports Resend delivery failures instead of claiming a reset code was sent", async () => {
     const { repo, notifier, service } = build();
     notifier.failPasswordReset = true;
+    repo.failPasswordResetEmailAudit = true;
     await expect(service.requestPasswordReset({ email: "client@example.com" }))
       .rejects.toMatchObject({ code: "PASSWORD_RESET_EMAIL_FAILED", statusCode: 502 });
-    expect(repo.verificationUsed).toBeGreaterThan(0);
+    expect(repo.verificationRevocations).toBe(2);
+    expect(repo.verificationActive).toBe(false);
   });
 
-  it("consumes a valid password reset code before changing the Cognito password", async () => {
+  it("keeps a provider-accepted password reset code active when audit persistence fails", async () => {
+    const { repo, notifier, service } = build();
+    repo.failPasswordResetEmailAudit = true;
+
+    await expect(service.requestPasswordReset({ email: "client@example.com" }))
+      .resolves.toEqual({ ok: true, retryAfterSeconds: 60 });
+
+    expect(notifier.passwordResetCodes).toBe(1);
+    expect(repo.verificationRevocations).toBe(1);
+    expect(repo.verificationActive).toBe(true);
+  });
+
+  it("atomically claims a valid password reset code while changing the Cognito password", async () => {
     const { repo, cognito, service } = build();
     await expect(service.confirmPasswordReset({
       email: "client@example.com",
@@ -236,6 +483,83 @@ describe("AccountAuthService", () => {
     })).resolves.toEqual({ ok: true, nextUrl: "/portal/dashboard" });
     expect(cognito.passwordSets).toBe(1);
     expect(repo.recoveredLinks).toBe(1);
+    expect(repo.verificationActive).toBe(false);
+  });
+
+  it("releases a password reset claim only when Cognito definitely failed before mutation", async () => {
+    const { repo, cognito, service } = build();
+    cognito.passwordError = new CognitoMutationError(
+      "SET_PERMANENT_PASSWORD",
+      "BEFORE_MUTATION",
+      new Error("Cognito preflight failed")
+    );
+    const input = {
+      email: "client@example.com",
+      confirmationCode: "12345678",
+      newPassword: "SecurePassword123!"
+    };
+
+    await expect(service.confirmPasswordReset(input))
+      .rejects.toThrow("Cognito preflight failed");
+    expect(repo.recoveryReleases).toBe(1);
+    expect(repo.verificationActive).toBe(true);
+
+    cognito.passwordError = undefined;
+    await expect(service.confirmPasswordReset(input))
+      .resolves.toEqual({ ok: true, nextUrl: "/portal/dashboard" });
+    expect(cognito.passwordSets).toBe(2);
+    expect(repo.recoveredLinks).toBe(1);
+    expect(repo.verificationActive).toBe(false);
+  });
+
+  it("keeps a password reset claim consumed after a mutation-attempted failure", async () => {
+    const { repo, cognito, service } = build();
+    cognito.passwordError = new CognitoMutationError(
+      "SET_PERMANENT_PASSWORD",
+      "MUTATION_ATTEMPTED",
+      new Error("Cognito post-password operation failed")
+    );
+    const input = {
+      email: "client@example.com",
+      confirmationCode: "12345678",
+      newPassword: "SecurePassword123!"
+    };
+
+    await expect(service.confirmPasswordReset(input))
+      .rejects.toThrow("Cognito post-password operation failed");
+    expect(repo.recoveryReleases).toBe(0);
+    expect(repo.verificationActive).toBe(false);
+
+    cognito.passwordError = undefined;
+    await expect(service.confirmPasswordReset(input))
+      .rejects.toMatchObject({ code: "INVALID_PASSWORD_RESET_CODE", statusCode: 400 });
+    expect(cognito.passwordSets).toBe(1);
+  });
+
+  it("does not treat an untyped Cognito reset failure as definitely pre-mutation", async () => {
+    const { repo, cognito, service } = build();
+    cognito.passwordError = new Error("Ambiguous Cognito transport failure");
+
+    await expect(service.confirmPasswordReset({
+      email: "client@example.com",
+      confirmationCode: "12345678",
+      newPassword: "SecurePassword123!"
+    })).rejects.toThrow("Ambiguous Cognito transport failure");
+    expect(repo.recoveryReleases).toBe(0);
+    expect(repo.verificationActive).toBe(false);
+  });
+
+  it("rejects replay of a password reset code after a successful password update", async () => {
+    const { cognito, service } = build();
+    const input = {
+      email: "client@example.com",
+      confirmationCode: "12345678",
+      newPassword: "SecurePassword123!"
+    };
+    await service.confirmPasswordReset(input);
+    await expect(service.confirmPasswordReset(input))
+      .rejects.toMatchObject({ code: "INVALID_PASSWORD_RESET_CODE", statusCode: 400 });
+    expect(cognito.passwordSets).toBe(1);
   });
 
   it("does not link a recovered account when Cognito email verification is incomplete", async () => {

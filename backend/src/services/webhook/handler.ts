@@ -7,6 +7,7 @@ import { IntuitQuickBooksGateway } from "../agreement/quickbooks-client";
 import { ResendPaymentSupportNotifier } from "../agreement/resend-payment-support-notifier";
 import { PaymentStatusService } from "../payment/payment-service";
 import { PrismaPaymentRepository } from "../payment/prisma-payment-repository";
+import { ResendPaymentConfirmedNotifier } from "../payment/resend-payment-confirmed-notifier";
 import { QuickBooksWebhookError, QuickBooksWebhookProcessor, verifyQuickBooksSignature } from "./quickbooks-webhook";
 
 const json = (statusCode: number, body: unknown) => ({
@@ -30,6 +31,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
       repository,
       quickBooks,
       new ResendPaymentSupportNotifier(secrets),
+      new ResendPaymentConfirmedNotifier(secrets),
       process.env.FRONTEND_URL ?? "http://localhost:3000"
     );
     const processor = new QuickBooksWebhookProcessor(prisma, paymentStatus);

@@ -1,4 +1,5 @@
 import { AssessmentStatus, DeliveryStatus, type Prisma, type PrismaClient } from "@prisma/client";
+import { findAssessmentSessionByAccessTokenHash } from "../../shared/assessment-access-token";
 import type { AccountAuthRepository, AccountInvite, PaidSession, PasswordResetSubject } from "./account-auth-service";
 
 const toPaidSession = (session: {
@@ -35,21 +36,7 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
   async findSessionByStatusTokenHash(tokenHash: string): Promise<PaidSession | null> {
-    const session = await this.prisma.assessmentSession.findUnique({
-      where: { statusTokenHash: tokenHash },
-      select: {
-        id: true,
-        normalizedEmail: true,
-        firstName: true,
-        middleName: true,
-        lastName: true,
-        assessmentYear: true,
-        status: true,
-        accountCreationAllowed: true,
-        statusTokenExpiresAt: true,
-        clientId: true
-      }
-    });
+    const session = await findAssessmentSessionByAccessTokenHash(this.prisma, tokenHash);
     return session ? toPaidSession(session) : null;
   }
 
@@ -57,8 +44,23 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
     await this.prisma.accountInvite.create({ data: input });
   }
 
-  async revokeUnusedInvites(sessionId: string, at: Date): Promise<void> {
-    await this.prisma.accountInvite.updateMany({ where: { sessionId, usedAt: null, revokedAt: null }, data: { revokedAt: at } });
+  async revokeUnusedInvitesExcept(sessionId: string, tokenHash: string, at: Date): Promise<void> {
+    await this.prisma.accountInvite.updateMany({
+      where: {
+        sessionId,
+        tokenHash: { not: tokenHash },
+        usedAt: null,
+        revokedAt: null
+      },
+      data: { revokedAt: at }
+    });
+  }
+
+  async revokeUnusedInviteByTokenHash(tokenHash: string, at: Date): Promise<void> {
+    await this.prisma.accountInvite.updateMany({
+      where: { tokenHash, usedAt: null, revokedAt: null },
+      data: { revokedAt: at }
+    });
   }
 
   async markSessionInvited(sessionId: string): Promise<void> {
@@ -190,16 +192,49 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
     });
   }
 
-  async recordInviteEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED" | "SKIPPED"; failureReason?: string; sentAt: Date }): Promise<void> {
+  async recordInviteEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED" | "SKIPPED"; providerMessageId?: string; failureReason?: string; sentAt: Date }): Promise<void> {
     await this.prisma.emailEvent.create({
       data: {
         sessionId: input.sessionId,
         templateKey: "ACCOUNT_SETUP_INVITE",
         recipientEmail: input.recipientEmail,
+        providerMessageId: input.providerMessageId,
         status: DeliveryStatus[input.status],
         failureReason: input.failureReason,
         sentAt: input.status === "SENT" ? input.sentAt : undefined
       }
+    });
+  }
+
+  async recordAccountVerificationEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED" | "SKIPPED"; providerMessageId?: string; failureReason?: string; sentAt: Date }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const emailEvent = await tx.emailEvent.create({
+        data: {
+          sessionId: input.sessionId,
+          templateKey: "ACCOUNT_VERIFICATION_CODE",
+          recipientEmail: input.recipientEmail,
+          providerMessageId: input.providerMessageId,
+          status: DeliveryStatus[input.status],
+          failureReason: input.failureReason,
+          sentAt: input.status === "SENT" ? input.sentAt : undefined
+        }
+      });
+      await tx.auditLog.create({
+        data: {
+          sessionId: input.sessionId,
+          action: `ACCOUNT_VERIFICATION_EMAIL_${input.status}`,
+          entityType: "EMAIL_EVENT",
+          entityId: emailEvent.id,
+          actorType: "SYSTEM",
+          metadata: {
+            templateKey: "ACCOUNT_VERIFICATION_CODE",
+            recipientEmail: input.recipientEmail,
+            status: input.status,
+            providerMessageId: input.providerMessageId ?? null,
+            failureReason: input.failureReason ?? null
+          }
+        }
+      });
     });
   }
 
@@ -330,7 +365,7 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
       : null;
   }
 
-  async consumeRecoveryCode(input: {
+  async claimRecoveryCode(input: {
     sessionId: string;
     tokenHash: string;
     verificationType: string;
@@ -347,5 +382,22 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
       data: { usedAt: input.now }
     });
     return result.count === 1;
+  }
+
+  async releaseRecoveryCodeClaim(input: {
+    sessionId: string;
+    tokenHash: string;
+    verificationType: string;
+    claimedAt: Date;
+  }): Promise<void> {
+    await this.prisma.recoveryToken.updateMany({
+      where: {
+        sessionId: input.sessionId,
+        tokenHash: input.tokenHash,
+        verificationType: input.verificationType,
+        usedAt: input.claimedAt
+      },
+      data: { usedAt: null }
+    });
   }
 }

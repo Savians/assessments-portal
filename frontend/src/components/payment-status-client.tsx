@@ -1,9 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { ArrowRight, CheckCircle2, Clock3, LifeBuoy, Mail, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  LayoutDashboard,
+  LifeBuoy,
+  Mail,
+  RefreshCw
+} from "lucide-react";
 import {
   AssessmentApiError,
   loadPaymentStatus,
@@ -13,6 +21,7 @@ import {
   startPaidAccountSetup,
   type PaymentStatusResponse
 } from "@/services/assessment-api";
+import { signOutFromPortal } from "@/services/portal-auth";
 import { Button, Card, ErrorAlert, LoadingOverlay, StatusBadge, Stepper } from "@/components/ui";
 import { ONBOARDING_STEPS } from "@/lib/assessment-flow";
 
@@ -22,6 +31,16 @@ const formatMoney = (amount?: number, currency = "USD") =>
     : "-";
 
 const isPending = (status?: string) => status === "PAYMENT_PENDING" || status === "PAYMENT_VERIFYING";
+const accountReadyStatuses = new Set([
+  "ACCOUNT_CREATED",
+  "PROFILE_IN_PROGRESS",
+  "PROFILE_COMPLETED",
+  "DOCUMENTS_IN_PROGRESS",
+  "DOCUMENTS_SUBMITTED",
+  "IN_PROGRESS",
+  "COMPLETED"
+]);
+const isAccountReady = (status?: string) => Boolean(status && accountReadyStatuses.has(status));
 const isVerifiedForSetup = (details: PaymentStatusResponse | null) =>
   Boolean(
     details?.accountCreationAllowed &&
@@ -45,7 +64,6 @@ export function PaymentStatusClient({ token }: { token: string }) {
   const [refreshing, setRefreshing] = useState(false);
   const [resending, setResending] = useState(false);
   const [startingSetup, setStartingSetup] = useState(false);
-  const [autoStartedSetup, setAutoStartedSetup] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendNoticeIsCooldown, setResendNoticeIsCooldown] = useState(false);
@@ -54,8 +72,16 @@ export function PaymentStatusClient({ token }: { token: string }) {
   const [supportCooldown, setSupportCooldown] = useState(0);
 
   const paid = isVerifiedForSetup(details);
+  const accountReady = isAccountReady(details?.status);
+  const assessmentComplete = details?.status === "COMPLETED";
 
   const badge = useMemo(() => {
+    if (isAccountReady(details?.status)) {
+      return {
+        status: "complete" as const,
+        label: details?.status === "COMPLETED" ? "Assessment complete" : "Account ready"
+      };
+    }
     if (details?.status === "PAID_VERIFIED" || details?.status === "ACCOUNT_INVITED") {
       return { status: "complete" as const, label: "Payment verified" };
     }
@@ -179,7 +205,7 @@ export function PaymentStatusClient({ token }: { token: string }) {
     }
   };
 
-  const proceedToSetup = useCallback(async () => {
+  const proceedToSetup = async () => {
     setStartingSetup(true);
     setError(null);
     setResendMessage(null);
@@ -194,13 +220,12 @@ export function PaymentStatusClient({ token }: { token: string }) {
       );
       setStartingSetup(false);
     }
-  }, [router, token]);
+  };
 
-  useEffect(() => {
-    if (!paid || startingSetup || autoStartedSetup) return;
-    setAutoStartedSetup(true);
-    void proceedToSetup();
-  }, [autoStartedSetup, paid, proceedToSetup, startingSetup]);
+  const leaveSetupForLater = () => {
+    signOutFromPortal();
+    router.replace("/" as Route);
+  };
 
   if (loading) return <LoadingOverlay label="Loading payment status" />;
 
@@ -208,15 +233,22 @@ export function PaymentStatusClient({ token }: { token: string }) {
     <div className="page-shell py-10">
       <Stepper current={2} steps={ONBOARDING_STEPS} />
       <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_360px]">
-        <Card>
-          <StatusBadge status={badge.status}>{badge.label}</StatusBadge>
-          <h1 className="mt-4 text-3xl font-bold text-navy-800">
-            Invoice & payment status
-          </h1>
-          <p className="mt-3 leading-7 text-slate-600">
-            We verify payment directly against QuickBooks. Profile setup unlocks only after the
-            exact invoice shows a zero balance.
-          </p>
+          <Card>
+            <StatusBadge status={badge.status}>{badge.label}</StatusBadge>
+            <h1 className="mt-4 text-3xl font-bold text-navy-800">
+              {accountReady
+                ? assessmentComplete
+                  ? "Assessment complete"
+                  : "Your Savians account is ready"
+                : "Invoice & payment status"}
+            </h1>
+            <p className="mt-3 leading-7 text-slate-600">
+              {accountReady
+                ? assessmentComplete
+                  ? "Sign in securely to review your completed assessment and account dashboard."
+                  : "Sign in securely to continue your assessment, profile, and documents from the dashboard."
+                : "We verify payment directly against QuickBooks. Profile setup unlocks only after the exact invoice shows a zero balance."}
+            </p>
 
           {error ? (
             <div className="mt-5">
@@ -237,20 +269,44 @@ export function PaymentStatusClient({ token }: { token: string }) {
                 Please check the invoice sent to your email inbox and spam folder, open the
                 QuickBooks invoice, and complete the payment there. After paying, revisit this same
                 page or click <span className="font-semibold">Refresh payment status</span>. Once
-                QuickBooks shows a zero balance, we&apos;ll automatically continue you to account
-                setup and your assessment dashboard.
+                QuickBooks shows a zero balance, you can choose whether to set up your account now
+                or return and finish it later.
               </p>
             </div>
           ) : null}
 
           {paid ? (
-            <div className="mt-6 flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+            <div
+              aria-live="polite"
+              className="mt-6 flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900"
+              role="status"
+            >
               <CheckCircle2 aria-hidden className="mt-0.5 shrink-0" size={20} />
               <div>
                 <p className="font-semibold">Payment verified</p>
-                <p className="mt-1 text-sm">
-                  We&apos;re preparing your account setup and dashboard automatically. If you return later,
-                  this same secure status link will resume the flow.
+                <p className="mt-1 text-sm leading-6">
+                  Your payment was successful. You can set up your secure Savians account now, or
+                  return later using this secure payment link.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {accountReady ? (
+            <div
+              aria-live="polite"
+              className="mt-6 flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900"
+              role="status"
+            >
+              <CheckCircle2 aria-hidden className="mt-0.5 shrink-0" size={20} />
+              <div>
+                <p className="font-semibold">
+                  {assessmentComplete ? "Assessment complete" : "Your account is ready"}
+                </p>
+                <p className="mt-1 text-sm leading-6">
+                  {assessmentComplete
+                    ? "Your secure Savians account is set up. Sign in to review your completed assessment from the dashboard."
+                    : "Your secure Savians account is already set up. Sign in to continue your assessment from the dashboard."}
                 </p>
               </div>
             </div>
@@ -261,16 +317,31 @@ export function PaymentStatusClient({ token }: { token: string }) {
               <>
                 <Button onClick={proceedToSetup} disabled={startingSetup}>
                   <ArrowRight aria-hidden className="mr-2" size={17} />
-                  {startingSetup ? "Preparing dashboard..." : "Continue to dashboard"}
+                  {startingSetup ? "Preparing account setup..." : "Proceed to Account Setup"}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => router.push("/" as Route)}
+                  onClick={leaveSetupForLater}
                   disabled={startingSetup}
                 >
                   <Clock3 aria-hidden className="mr-2" size={17} />
                   I&apos;ll do this later
+                </Button>
+              </>
+            ) : accountReady ? (
+              <>
+                <Button onClick={() => router.push("/login" as Route)}>
+                  <LayoutDashboard aria-hidden className="mr-2" size={17} />
+                  Sign In / Go to Dashboard
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={leaveSetupForLater}
+                >
+                  <Clock3 aria-hidden className="mr-2" size={17} />
+                  Sign out and return home
                 </Button>
               </>
             ) : (
@@ -304,6 +375,11 @@ export function PaymentStatusClient({ token }: { token: string }) {
             <p className="mt-4 text-sm text-slate-500">
               Choosing later will not cancel your assessment. Keep this secure status link so you
               can come back to setup.
+            </p>
+          ) : null}
+          {accountReady ? (
+            <p className="mt-4 text-sm text-slate-500">
+              Your account remains secure if you return home. Sign in again whenever you are ready.
             </p>
           ) : null}
           {isPending(details?.status) ? (

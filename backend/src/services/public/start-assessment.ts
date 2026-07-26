@@ -32,11 +32,15 @@ export type AssessmentStatus =
   | "PROFILE_COMPLETED"
   | "DOCUMENTS_IN_PROGRESS"
   | "DOCUMENTS_SUBMITTED"
+  | "IN_PROGRESS"
+  | "COMPLETED"
   | "ERROR";
 
 export interface AssessmentSessionRecord {
   id: string;
   normalizedEmail: string;
+  firstName: string;
+  lastName: string;
   assessmentYear: number;
   status: AssessmentStatus;
 }
@@ -58,13 +62,13 @@ export interface CreateAssessmentRecord {
 export interface AssessmentSessionRepository {
   findAnnualSession(normalizedEmail: string, assessmentYear: number): Promise<AssessmentSessionRecord | null>;
   createAnnualSession(input: CreateAssessmentRecord): Promise<AssessmentSessionRecord>;
-  rotateStatusToken(
+  createAssessmentResumeGrant(
     sessionId: string,
     tokenHash: string,
     expiresAt: Date,
     actorIp?: string,
     actorUserAgent?: string
-  ): Promise<AssessmentSessionRecord>;
+  ): Promise<void>;
   recordResumeEmail(
     sessionId: string,
     recipientEmail: string,
@@ -80,6 +84,8 @@ export interface ResumeAgreementNotifier {
     recipientName: string;
     resumeUrl: string;
     assessmentYear: number;
+    assessmentStatus: AssessmentStatus;
+    emailPurpose: "START" | "RESUME";
   }): Promise<{ status: "SENT" | "SKIPPED"; providerMessageId?: string }>;
 }
 
@@ -143,11 +149,20 @@ const nextUrlForStatus = (status: AssessmentStatus, token: string): string => {
   if (status === "ACCOUNT_CREATED" || status === "PROFILE_IN_PROGRESS") {
     return "/portal/dashboard";
   }
-  if (status === "PROFILE_COMPLETED" || status === "DOCUMENTS_IN_PROGRESS" || status === "DOCUMENTS_SUBMITTED") {
+  if (
+    status === "PROFILE_COMPLETED" ||
+    status === "DOCUMENTS_IN_PROGRESS" ||
+    status === "DOCUMENTS_SUBMITTED" ||
+    status === "IN_PROGRESS" ||
+    status === "COMPLETED"
+  ) {
     return "/portal/dashboard";
   }
   return "/assessment/recover";
 };
+
+const nextUrlUsesStatusToken = (nextUrl: string): boolean =>
+  nextUrl.startsWith("/assessment/agreement/") || nextUrl.startsWith("/assessment/status/");
 
 export class StartAssessmentService {
   constructor(
@@ -174,15 +189,7 @@ export class StartAssessmentService {
     let session = await this.repository.findAnnualSession(normalizedEmail, assessmentYear);
     let resumed = Boolean(session);
 
-    if (session) {
-      session = await this.repository.rotateStatusToken(
-        session.id,
-        statusTokenHash,
-        statusTokenExpiresAt,
-        context.ipAddress,
-        context.userAgent
-      );
-    } else {
+    if (!session) {
       try {
         session = await this.repository.createAnnualSession({
           normalizedEmail,
@@ -201,46 +208,49 @@ export class StartAssessmentService {
         const concurrent = await this.repository.findAnnualSession(normalizedEmail, assessmentYear);
         if (!concurrent) throw error;
         resumed = true;
-        session = await this.repository.rotateStatusToken(
-          concurrent.id,
-          statusTokenHash,
-          statusTokenExpiresAt,
-          context.ipAddress,
-          context.userAgent
-        );
+        session = concurrent;
       }
     }
 
     const nextUrl = nextUrlForStatus(session.status, statusToken);
     const resumeUrl = new URL(nextUrl, this.frontendUrl).toString();
 
+    if (resumed && nextUrlUsesStatusToken(nextUrl)) {
+      await this.repository.createAssessmentResumeGrant(
+        session.id,
+        statusTokenHash,
+        statusTokenExpiresAt,
+        context.ipAddress,
+        context.userAgent
+      );
+    }
+
     let delivery: { status: "SENT" | "SKIPPED" | "FAILED"; providerMessageId?: string };
+    let failureReason: string | undefined;
     try {
       delivery = await this.notifier.send({
         recipientEmail: normalizedEmail,
-        recipientName: input.firstName + " " + input.lastName,
+        recipientName: session.firstName + " " + session.lastName,
         resumeUrl,
-        assessmentYear
+        assessmentYear,
+        assessmentStatus: session.status,
+        emailPurpose: resumed ? "RESUME" : "START"
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown email error";
-      log("error", "resume agreement email failed", { sessionId: session.id, error: message });
-      await this.repository.recordResumeEmail(
-        session.id,
-        normalizedEmail,
-        "FAILED",
-        undefined,
-        message
-      );
-      if (resumed) throw new ResumeEmailDeliveryError();
+      failureReason = error instanceof Error ? error.message : "Unknown email error";
+      log("error", "assessment access email failed", {
+        sessionId: session.id,
+        error: failureReason
+      });
       delivery = { status: "FAILED" };
     }
 
-    await this.repository.recordResumeEmail(
+    await this.recordResumeEmailBestEffort(
       session.id,
       normalizedEmail,
       delivery.status,
-      delivery.providerMessageId
+      delivery.providerMessageId,
+      failureReason
     );
     if (resumed && delivery.status !== "SENT") {
       throw new ResumeEmailDeliveryError();
@@ -273,25 +283,40 @@ export class StartAssessmentService {
       const statusToken = generateStatusToken();
       const statusTokenHash = hashStatusToken(statusToken);
       const statusTokenExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-      const rotated = await this.repository.rotateStatusToken(
-        session.id,
-        statusTokenHash,
-        statusTokenExpiresAt,
-        context.ipAddress,
-        context.userAgent
-      );
-      const resumeUrl = new URL(nextUrlForStatus(rotated.status, statusToken), this.frontendUrl).toString();
+      const nextUrl = nextUrlForStatus(session.status, statusToken);
+      const resumeUrl = new URL(nextUrl, this.frontendUrl).toString();
+      if (nextUrlUsesStatusToken(nextUrl)) {
+        await this.repository.createAssessmentResumeGrant(
+          session.id,
+          statusTokenHash,
+          statusTokenExpiresAt,
+          context.ipAddress,
+          context.userAgent
+        );
+      }
+      let delivery: { status: "SENT" | "SKIPPED" | "FAILED"; providerMessageId?: string };
+      let failureReason: string | undefined;
       try {
-        const delivery = await this.notifier.send({
+        delivery = await this.notifier.send({
           recipientEmail: normalizedEmail,
-          recipientName: "Savians client",
+          recipientName: session.firstName + " " + session.lastName,
           resumeUrl,
-          assessmentYear
+          assessmentYear,
+          assessmentStatus: session.status,
+          emailPurpose: "RESUME"
         });
-        await this.repository.recordResumeEmail(session.id, normalizedEmail, delivery.status, delivery.providerMessageId);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown email error";
-        await this.repository.recordResumeEmail(session.id, normalizedEmail, "FAILED", undefined, message);
+        failureReason = error instanceof Error ? error.message : "Unknown email error";
+        delivery = { status: "FAILED" };
+      }
+      await this.recordResumeEmailBestEffort(
+        session.id,
+        normalizedEmail,
+        delivery.status,
+        delivery.providerMessageId,
+        failureReason
+      );
+      if (delivery.status !== "SENT") {
         throw new ResumeEmailDeliveryError();
       }
     }
@@ -300,5 +325,29 @@ export class StartAssessmentService {
       nextUrl: "/assessment/check-email",
       message: "If an assessment exists for this email, a secure resume link has been sent."
     };
+  }
+
+  private async recordResumeEmailBestEffort(
+    sessionId: string,
+    recipientEmail: string,
+    status: "SENT" | "FAILED" | "SKIPPED",
+    providerMessageId?: string,
+    failureReason?: string
+  ): Promise<void> {
+    try {
+      await this.repository.recordResumeEmail(
+        sessionId,
+        recipientEmail,
+        status,
+        providerMessageId,
+        failureReason
+      );
+    } catch (error) {
+      log("error", "assessment access email audit persistence failed", {
+        sessionId,
+        deliveryStatus: status,
+        error: error instanceof Error ? error.message : "Unknown email audit persistence error"
+      });
+    }
   }
 }

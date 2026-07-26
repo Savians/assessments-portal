@@ -39,6 +39,7 @@ describe("AccountSetupClient", () => {
     render(<AccountSetupClient inviteToken={"a".repeat(43)} />);
 
     expect(await screen.findByText("Payment successful")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveClass("text-emerald-900");
     expect(screen.getByText(/you can sign in and return at any time/i)).toBeInTheDocument();
     expect(screen.queryByText("Profile & documents")).not.toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(3);

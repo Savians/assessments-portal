@@ -7,6 +7,7 @@ import { IntuitQuickBooksGateway } from "../agreement/quickbooks-client";
 import { ResendPaymentSupportNotifier } from "../agreement/resend-payment-support-notifier";
 import { PaymentFlowError, PaymentStatusService } from "./payment-service";
 import { PrismaPaymentRepository } from "./prisma-payment-repository";
+import { ResendPaymentConfirmedNotifier } from "./resend-payment-confirmed-notifier";
 
 const tokenBody = z.object({ token: z.string().min(32).max(256) });
 const json = (statusCode: number, body: unknown) => ({
@@ -28,6 +29,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
       repository,
       quickBooks,
       new ResendPaymentSupportNotifier(secrets),
+      new ResendPaymentConfirmedNotifier(secrets),
       process.env.FRONTEND_URL ?? "http://localhost:3000"
     );
     const method = event.requestContext.http.method;

@@ -1,5 +1,31 @@
-import { AssessmentStatus, DeliveryStatus, ReconciliationStatus, type Prisma, type PrismaClient } from "@prisma/client";
+import {
+  AssessmentStatus,
+  DeliveryStatus,
+  Prisma,
+  ReconciliationStatus,
+  type PrismaClient
+} from "@prisma/client";
+import { findAssessmentSessionByAccessTokenHash } from "../../shared/assessment-access-token";
 import type { PaymentRepository, PaymentSession } from "./payment-service";
+
+const paymentPendingStatuses = [
+  AssessmentStatus.INVOICE_CREATED,
+  AssessmentStatus.INVOICE_SENT,
+  AssessmentStatus.PAYMENT_PENDING,
+  AssessmentStatus.PAYMENT_VERIFYING
+];
+
+const paymentConfirmationRetryStatuses = [
+  AssessmentStatus.PAID_VERIFIED,
+  AssessmentStatus.ACCOUNT_INVITED,
+  AssessmentStatus.ACCOUNT_CREATED,
+  AssessmentStatus.PROFILE_IN_PROGRESS,
+  AssessmentStatus.PROFILE_COMPLETED,
+  AssessmentStatus.DOCUMENTS_IN_PROGRESS,
+  AssessmentStatus.DOCUMENTS_SUBMITTED,
+  AssessmentStatus.IN_PROGRESS,
+  AssessmentStatus.COMPLETED
+];
 
 const toSession = (session: {
   id: string;
@@ -29,7 +55,7 @@ export class PrismaPaymentRepository implements PaymentRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
   async findSessionByTokenHash(tokenHash: string): Promise<PaymentSession | null> {
-    const session = await this.prisma.assessmentSession.findUnique({ where: { statusTokenHash: tokenHash } });
+    const session = await findAssessmentSessionByAccessTokenHash(this.prisma, tokenHash);
     return session ? toSession(session) : null;
   }
 
@@ -40,7 +66,29 @@ export class PrismaPaymentRepository implements PaymentRepository {
 
   async findOpenInvoiceSessions(limit: number): Promise<PaymentSession[]> {
     const sessions = await this.prisma.assessmentSession.findMany({
-      where: { status: { in: [AssessmentStatus.PAYMENT_PENDING, AssessmentStatus.PAYMENT_VERIFYING] }, qbInvoiceId: { not: null } },
+      where: {
+        qbInvoiceId: { not: null },
+        OR: [
+          {
+            status: {
+              in: [
+                AssessmentStatus.PAYMENT_PENDING,
+                AssessmentStatus.PAYMENT_VERIFYING
+              ]
+            }
+          },
+          {
+            status: { in: paymentConfirmationRetryStatuses },
+            accountCreationAllowed: true,
+            emailEvents: {
+              none: {
+                templateKey: "PAYMENT_CONFIRMED",
+                status: DeliveryStatus.SENT
+              }
+            }
+          }
+        ]
+      },
       orderBy: [{ lastStatusCheckedAt: "asc" }, { updatedAt: "asc" }],
       take: limit
     });
@@ -62,25 +110,126 @@ export class PrismaPaymentRepository implements PaymentRepository {
     ]);
   }
 
-  async recordPaidVerified(sessionId: string, balance: number, checkedAt: Date): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+  async recordPaidVerified(
+    sessionId: string,
+    balance: number,
+    checkedAt: Date
+  ): Promise<{ transitioned: boolean; session: PaymentSession }> {
+    return this.prisma.$transaction(async (tx) => {
       const current = await tx.assessmentSession.findUniqueOrThrow({ where: { id: sessionId }, select: { status: true } });
-      await tx.assessmentSession.update({
-        where: { id: sessionId },
+      const transition = await tx.assessmentSession.updateMany({
+        where: {
+          id: sessionId,
+          status: { in: paymentPendingStatuses }
+        },
         data: { status: AssessmentStatus.PAID_VERIFIED, qbInvoiceBalance: balance, lastStatusCheckedAt: checkedAt, paymentVerifiedAt: checkedAt, accountCreationAllowed: true }
       });
+      const transitioned = transition.count === 1;
+      if (!transitioned) {
+        // A concurrent verifier may have won the transition, or account setup may
+        // already be farther along. Refresh reconciliation metadata without ever
+        // moving a later journey status backward to PAID_VERIFIED.
+        await tx.assessmentSession.update({
+          where: { id: sessionId },
+          data: { qbInvoiceBalance: balance, lastStatusCheckedAt: checkedAt }
+        });
+      }
       await tx.paymentReconciliation.create({
         data: { sessionId, status: ReconciliationStatus.VERIFIED_PAID, invoiceBalance: balance, checkedAt }
       });
-      if (current.status !== AssessmentStatus.PAID_VERIFIED) {
+      if (transitioned) {
         await tx.assessmentStatusHistory.create({
           data: { sessionId, oldStatus: current.status, newStatus: AssessmentStatus.PAID_VERIFIED, reason: "QuickBooks invoice balance verified as zero", actorType: "SYSTEM" }
         });
       }
       await tx.auditLog.create({
-        data: { sessionId, action: "PAYMENT_VERIFIED", entityType: "ASSESSMENT_SESSION", entityId: sessionId, actorType: "SYSTEM", metadata: { balance } }
+        data: { sessionId, action: "PAYMENT_VERIFIED", entityType: "ASSESSMENT_SESSION", entityId: sessionId, actorType: "SYSTEM", metadata: { balance, firstTransition: transitioned } }
+      });
+      const updated = await tx.assessmentSession.findUniqueOrThrow({
+        where: { id: sessionId }
+      });
+      return { transitioned, session: toSession(updated) };
+    });
+  }
+
+  async recordPaymentConfirmationEmail(input: {
+    sessionId: string;
+    recipientEmail: string;
+    status: "SENT" | "FAILED" | "SKIPPED";
+    providerMessageId?: string;
+    failureReason?: string;
+    sentAt: Date;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      // Serialize event upserts per assessment. Resend's idempotency key prevents
+      // duplicate delivery; this lock prevents concurrent retries creating
+      // duplicate PAYMENT_CONFIRMED event rows.
+      await tx.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "assessment_sessions" WHERE "id" = ${input.sessionId}::uuid FOR UPDATE`
+      );
+      const existing = await tx.emailEvent.findFirst({
+        where: {
+          sessionId: input.sessionId,
+          templateKey: "PAYMENT_CONFIRMED"
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, status: true }
+      });
+      const eventData = {
+        recipientEmail: input.recipientEmail,
+        providerMessageId: input.providerMessageId ?? null,
+        status: DeliveryStatus[input.status],
+        failureReason: input.failureReason ?? null,
+        sentAt: input.status === "SENT" ? input.sentAt : null
+      };
+      if (existing) {
+        const terminal = existing.status === DeliveryStatus.SENT;
+        if (!terminal) {
+          await tx.emailEvent.update({
+            where: { id: existing.id },
+            data: eventData
+          });
+        }
+      } else {
+        await tx.emailEvent.create({
+          data: {
+            sessionId: input.sessionId,
+            templateKey: "PAYMENT_CONFIRMED",
+            ...eventData
+          }
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          sessionId: input.sessionId,
+          action: `PAYMENT_CONFIRMED_EMAIL_${input.status}`,
+          entityType: "ASSESSMENT_SESSION",
+          entityId: input.sessionId,
+          actorType: "SYSTEM",
+          metadata: {
+            deliveryStatus: input.status,
+            ...(input.providerMessageId
+              ? { providerMessageId: input.providerMessageId }
+              : {}),
+            ...(input.failureReason
+              ? { failureReason: input.failureReason.slice(0, 500) }
+              : {})
+          }
+        }
       });
     });
+  }
+
+  async shouldSendPaymentConfirmation(sessionId: string): Promise<boolean> {
+    const terminal = await this.prisma.emailEvent.findFirst({
+      where: {
+        sessionId,
+        templateKey: "PAYMENT_CONFIRMED",
+        status: DeliveryStatus.SENT
+      },
+      select: { id: true }
+    });
+    return !terminal;
   }
 
   async recordVerificationFailure(sessionId: string, message: string, checkedAt: Date): Promise<void> {
