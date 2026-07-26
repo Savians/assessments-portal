@@ -66,6 +66,12 @@ export interface AccountAuthRepository {
     verificationTokenHash?: string;
     verificationType?: string;
   }): Promise<void>;
+  linkRecoveredAccount(input: {
+    sessionId: string;
+    normalizedEmail: string;
+    cognitoUserId: string;
+    recoveredAt: Date;
+  }): Promise<void>;
   recordInviteEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED" | "SKIPPED"; failureReason?: string; sentAt: Date }): Promise<void>;
   recordPasswordResetEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED"; providerMessageId?: string; failureReason?: string; sentAt: Date }): Promise<void>;
   revokeAccountVerificationCodes(sessionId: string, verificationType: string, at: Date): Promise<void>;
@@ -87,7 +93,7 @@ export interface CognitoAccountGateway {
   accountExists(email: string): Promise<boolean>;
   prepareAccount(input: { email: string; password: string; fullName: string }): Promise<{ status: "PASSWORD_SET" | "EXISTING_ACCOUNT" }>;
   confirmSignUp(input: { email: string; confirmationCode: string }): Promise<{ userSub: string; emailVerified: boolean }>;
-  setPermanentPassword(input: { email: string; password: string }): Promise<void>;
+  setPermanentPassword(input: { email: string; password: string }): Promise<{ userSub: string; emailVerified: boolean }>;
 }
 
 export class AccountAuthError extends Error {
@@ -276,12 +282,29 @@ export class AccountAuthService {
       verificationType,
       expiresAt: new Date(now.getTime() + 15 * 60 * 1000)
     });
-    await this.notifier.sendVerificationCode({
-      email: invite.session.normalizedEmail,
-      firstName: invite.session.firstName,
-      code,
-      assessmentYear: invite.session.assessmentYear
-    });
+    try {
+      await this.notifier.sendVerificationCode({
+        email: invite.session.normalizedEmail,
+        firstName: invite.session.firstName,
+        code,
+        assessmentYear: invite.session.assessmentYear
+      });
+    } catch (error) {
+      await this.repository.revokeAccountVerificationCodes(
+        invite.sessionId,
+        verificationType,
+        now
+      );
+      log("error", "account verification email delivery failed", {
+        sessionId: invite.sessionId,
+        error: error instanceof Error ? error.message : "Unknown Resend delivery error"
+      });
+      throw new AccountAuthError(
+        "VERIFICATION_EMAIL_FAILED",
+        "We could not send the verification code. Please try again in a few minutes.",
+        502
+      );
+    }
   }
 
   async confirm(raw: unknown): Promise<{ status: "ACCOUNT_CREATED"; nextUrl: string }> {
@@ -374,7 +397,7 @@ export class AccountAuthService {
     return { ok: true, retryAfterSeconds: 60 };
   }
 
-  async confirmPasswordReset(raw: unknown): Promise<{ ok: true }> {
+  async confirmPasswordReset(raw: unknown): Promise<{ ok: true; nextUrl: "/portal/dashboard" }> {
     const input = passwordResetConfirmSchema.parse(raw);
     const normalizedEmail = normalizeEmail(input.email);
     const subject = await this.repository.findPasswordResetSubjectByEmail(normalizedEmail);
@@ -392,8 +415,20 @@ export class AccountAuthService {
       throw new AccountAuthError("INVALID_PASSWORD_RESET_CODE", "The reset code is invalid or expired.", 400);
     }
 
-    await this.cognito.setPermanentPassword({ email: normalizedEmail, password: input.newPassword });
-    return { ok: true };
+    const recovered = await this.cognito.setPermanentPassword({
+      email: normalizedEmail,
+      password: input.newPassword
+    });
+    if (!recovered.emailVerified) {
+      throw new AccountAuthError("EMAIL_NOT_VERIFIED", "Email verification was not completed.", 409);
+    }
+    await this.repository.linkRecoveredAccount({
+      sessionId: subject.sessionId,
+      normalizedEmail: subject.normalizedEmail,
+      cognitoUserId: recovered.userSub,
+      recoveredAt: this.now()
+    });
+    return { ok: true, nextUrl: "/portal/dashboard" };
   }
 
   async claimExistingAccount(raw: unknown, rawClaims: unknown): Promise<{ status: "ACCOUNT_CREATED"; nextUrl: string }> {

@@ -15,7 +15,6 @@ class Repo implements AgreementRepository {
   async saveQuickBooksInvoice(_sessionId: string, invoice: { id: string; number?: string; balance: number }) { this.session.qbInvoiceId = invoice.id; this.session.qbInvoiceNumber = invoice.number; this.session.qbInvoiceBalance = invoice.balance; this.session.status = "INVOICE_CREATED"; }
   async markInvoiceSent() { this.session.status = "PAYMENT_PENDING"; }
   async recordBillingFailure(_sessionId: string, message: string) { this.failures.push(message); }
-  async recordNotificationFailure(_sessionId: string, message: string) { this.failures.push(message); }
 }
 class Qbo implements QuickBooksGateway {
   customers = 0; invoices = 0; sends = 0; failFirstSend = false;
@@ -23,7 +22,16 @@ class Qbo implements QuickBooksGateway {
   async createInvoice() { this.invoices++; return { id: "invoice-1", number: "1001", balance: 2997 }; }
   async sendInvoice() { this.sends++; if (this.failFirstSend && this.sends === 1) throw new Error("temporary send failure"); }
 }
-const build = (repo = new Repo(), qbo = new Qbo()) => ({ repo, qbo, service: new AgreementService(repo, { getReadUrl: async () => "https://example.com/legal.pdf" }, qbo, { send: async () => undefined }, "https://assessments.savians.com", () => new Date("2026-07-05T12:00:00Z")) });
+const build = (repo = new Repo(), qbo = new Qbo()) => ({
+  repo,
+  qbo,
+  service: new AgreementService(
+    repo,
+    { getReadUrl: async () => "https://example.com/legal.pdf" },
+    qbo,
+    () => new Date("2026-07-05T12:00:00Z")
+  )
+});
 
 describe("AgreementService", () => {
   it("loads the immutable active template before billing", async () => {

@@ -14,7 +14,7 @@ class Repo implements AccountAuthRepository {
     statusTokenExpiresAt: new Date("2026-08-01T00:00:00Z")
   };
   invite?: AccountInvite;
-  emails = 0; linked = 0; revoked = 0; invited = 0; verificationCodes = 0; verificationUsed = 0; verificationActive = true; passwordResetSubjectExists = true;
+  emails = 0; linked = 0; recoveredLinks = 0; revoked = 0; invited = 0; verificationCodes = 0; verificationUsed = 0; verificationActive = true; passwordResetSubjectExists = true;
   latestVerificationCreatedAt: Date | null = null;
   linkedInput?: Parameters<AccountAuthRepository["linkConfirmedAccount"]>[0];
   async findSessionByStatusTokenHash() { return this.session; }
@@ -25,6 +25,7 @@ class Repo implements AccountAuthRepository {
   async markSessionInvited() { this.invited++; this.session.status = "ACCOUNT_INVITED"; }
   async findInviteByTokenHash() { return this.invite ?? null; }
   async linkConfirmedAccount(input: Parameters<AccountAuthRepository["linkConfirmedAccount"]>[0]) { this.linked++; this.linkedInput = input; this.session.status = "ACCOUNT_CREATED"; if (this.invite) this.invite.usedAt = input.confirmedAt; }
+  async linkRecoveredAccount() { this.recoveredLinks++; this.session.status = "ACCOUNT_CREATED"; }
   async recordInviteEmail() { this.emails++; }
   async recordPasswordResetEmail() { this.emails++; }
   async revokeAccountVerificationCodes() { this.verificationUsed++; }
@@ -45,13 +46,19 @@ class Cognito implements CognitoAccountGateway {
   async accountExists() { return this.exists; }
   async prepareAccount() { this.signups++; return { status: this.accountStatus }; }
   async confirmSignUp() { this.confirms++; return { userSub: "sub-1", emailVerified: this.verified }; }
-  async setPermanentPassword() { this.passwordSets++; }
+  async setPermanentPassword() {
+    this.passwordSets++;
+    return { userSub: "sub-1", emailVerified: this.verified };
+  }
 }
 
 class Notifier implements AccountInviteNotifier {
-  sends = 0; codes = 0; passwordResetCodes = 0; failPasswordReset = false;
+  sends = 0; codes = 0; passwordResetCodes = 0; failVerification = false; failPasswordReset = false;
   async send() { this.sends++; }
-  async sendVerificationCode() { this.codes++; }
+  async sendVerificationCode() {
+    this.codes++;
+    if (this.failVerification) throw new Error("Resend rejected the verification message");
+  }
   async sendPasswordResetCode() {
     this.passwordResetCodes++;
     if (this.failPasswordReset) throw new Error("Resend rejected the request");
@@ -138,6 +145,17 @@ describe("AccountAuthService", () => {
       .rejects.toMatchObject({ code: "VERIFICATION_RESEND_RATE_LIMITED", statusCode: 429 });
   });
 
+  it("reports account verification delivery failures instead of claiming a code was sent", async () => {
+    const { repo, notifier, service } = build();
+    await service.reissueInvite({ token: statusToken });
+    notifier.failVerification = true;
+    await expect(service.startSetup({
+      inviteToken: "invite-token".repeat(4),
+      password: "StrongPass123!"
+    })).rejects.toMatchObject({ code: "VERIFICATION_EMAIL_FAILED", statusCode: 502 });
+    expect(repo.verificationUsed).toBeGreaterThan(0);
+  });
+
   it("links an existing confirmed account only when authenticated claims match the assessment email", async () => {
     const { repo, service } = build();
     await service.reissueInvite({ token: statusToken });
@@ -210,13 +228,26 @@ describe("AccountAuthService", () => {
   });
 
   it("consumes a valid password reset code before changing the Cognito password", async () => {
-    const { cognito, service } = build();
+    const { repo, cognito, service } = build();
     await expect(service.confirmPasswordReset({
       email: "client@example.com",
       confirmationCode: "12345678",
       newPassword: "SecurePassword123!"
-    })).resolves.toEqual({ ok: true });
+    })).resolves.toEqual({ ok: true, nextUrl: "/portal/dashboard" });
     expect(cognito.passwordSets).toBe(1);
+    expect(repo.recoveredLinks).toBe(1);
+  });
+
+  it("does not link a recovered account when Cognito email verification is incomplete", async () => {
+    const { repo, cognito, service } = build();
+    cognito.verified = false;
+    await expect(service.confirmPasswordReset({
+      email: "client@example.com",
+      confirmationCode: "12345678",
+      newPassword: "SecurePassword123!"
+    })).rejects.toMatchObject({ code: "EMAIL_NOT_VERIFIED", statusCode: 409 });
+    expect(cognito.passwordSets).toBe(1);
+    expect(repo.recoveredLinks).toBe(0);
   });
 
   it("rejects invalid or expired password reset codes", async () => {
@@ -228,5 +259,6 @@ describe("AccountAuthService", () => {
       newPassword: "SecurePassword123!"
     })).rejects.toMatchObject({ code: "INVALID_PASSWORD_RESET_CODE", statusCode: 400 });
     expect(cognito.passwordSets).toBe(0);
+    expect(repo.recoveredLinks).toBe(0);
   });
 });

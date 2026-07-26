@@ -4,7 +4,7 @@ import { getApplicationSecrets, persistQuickBooksRefreshToken } from "../../shar
 import { log } from "../../shared/logger";
 import { getPrismaClient } from "../../shared/prisma-client";
 import { IntuitQuickBooksGateway } from "../agreement/quickbooks-client";
-import { ResendInvoiceStatusNotifier } from "../agreement/resend-invoice-status-notifier";
+import { ResendPaymentSupportNotifier } from "../agreement/resend-payment-support-notifier";
 import { PaymentFlowError, PaymentStatusService } from "./payment-service";
 import { PrismaPaymentRepository } from "./prisma-payment-repository";
 
@@ -24,7 +24,12 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
     const secrets = await getApplicationSecrets();
     const repository = new PrismaPaymentRepository(getPrismaClient(secrets.DATABASE_URL));
     const quickBooks = new IntuitQuickBooksGateway(secrets, persistQuickBooksRefreshToken);
-    const service = new PaymentStatusService(repository, quickBooks, new ResendInvoiceStatusNotifier(secrets), process.env.FRONTEND_URL ?? "http://localhost:3000");
+    const service = new PaymentStatusService(
+      repository,
+      quickBooks,
+      new ResendPaymentSupportNotifier(secrets),
+      process.env.FRONTEND_URL ?? "http://localhost:3000"
+    );
     const method = event.requestContext.http.method;
     const path = event.rawPath;
 

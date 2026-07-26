@@ -7,6 +7,20 @@ import { z } from "zod";
 import type { PortalEntitlement } from "../portal/profile-service";
 
 const categories = Object.values(DocumentCategory) as [DocumentCategory, ...DocumentCategory[]];
+const documentAccessStatuses: AssessmentStatus[] = [
+  AssessmentStatus.ACCOUNT_CREATED,
+  AssessmentStatus.PROFILE_IN_PROGRESS,
+  AssessmentStatus.PROFILE_COMPLETED,
+  AssessmentStatus.DOCUMENTS_IN_PROGRESS,
+  AssessmentStatus.DOCUMENTS_SUBMITTED,
+  AssessmentStatus.IN_PROGRESS,
+  AssessmentStatus.COMPLETED
+];
+const firstDocumentStatuses: AssessmentStatus[] = [
+  AssessmentStatus.ACCOUNT_CREATED,
+  AssessmentStatus.PROFILE_IN_PROGRESS,
+  AssessmentStatus.PROFILE_COMPLETED
+];
 
 export class DocumentServiceError extends Error {
   constructor(readonly code: string, message: string, readonly statusCode: number) {
@@ -73,7 +87,6 @@ export class DocumentService {
     const input = uploadRequestSchema.parse(raw);
     const session = await this.assertDocumentsUnlocked(entitlement);
     const profile = await this.prisma.clientProfile.findUnique({ where: { sessionId: entitlement.sessionId }, select: { id: true } });
-    if (!profile?.id) throw new DocumentServiceError("PROFILE_REQUIRED", "Complete your profile before uploading documents.", 409);
 
     const objectKey = [
       "assessments",
@@ -89,7 +102,7 @@ export class DocumentService {
       data: {
         clientId: entitlement.clientId,
         sessionId: entitlement.sessionId,
-        profileId: profile.id,
+        profileId: profile?.id ?? null,
         category: input.category,
         status: DocumentStatus.PENDING,
         originalName: input.fileName,
@@ -130,7 +143,7 @@ export class DocumentService {
         select: { id: true, category: true, status: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true, updatedAt: true }
       });
       const session = await tx.assessmentSession.findUnique({ where: { id: entitlement.sessionId }, select: { status: true } });
-      if (session?.status === AssessmentStatus.PROFILE_COMPLETED) {
+      if (session && firstDocumentStatuses.includes(session.status)) {
         await tx.assessmentSession.update({
           where: { id: entitlement.sessionId },
           data: { status: AssessmentStatus.DOCUMENTS_IN_PROGRESS, documentUploadAllowed: true }
@@ -138,7 +151,7 @@ export class DocumentService {
         await tx.assessmentStatusHistory.create({
           data: {
             sessionId: entitlement.sessionId,
-            oldStatus: AssessmentStatus.PROFILE_COMPLETED,
+            oldStatus: session.status,
             newStatus: AssessmentStatus.DOCUMENTS_IN_PROGRESS,
             reason: "Client uploaded first assessment document.",
             actorType: "CLIENT",
@@ -235,11 +248,11 @@ export class DocumentService {
         id: entitlement.sessionId,
         clientId: entitlement.clientId,
         assessmentYear: entitlement.assessmentYear,
-        status: { in: [AssessmentStatus.PROFILE_COMPLETED, AssessmentStatus.DOCUMENTS_IN_PROGRESS, AssessmentStatus.DOCUMENTS_SUBMITTED] }
+        status: { in: documentAccessStatuses }
       },
       select: { id: true, legalHold: true }
     });
-    if (!session) throw new DocumentServiceError("DOCUMENTS_LOCKED", "Complete your profile before uploading documents.", 409);
+    if (!session) throw new DocumentServiceError("DOCUMENTS_LOCKED", "Document access is available after paid account setup.", 409);
     return session;
   }
 }

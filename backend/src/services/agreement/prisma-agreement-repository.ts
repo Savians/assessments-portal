@@ -45,9 +45,6 @@ export class PrismaAgreementRepository implements AgreementRepository {
   async recordBillingFailure(sessionId: string, message: string): Promise<void> {
     await this.prisma.auditLog.create({ data: { sessionId, action: "AGREEMENT_BILLING_FAILED", entityType: "ASSESSMENT_SESSION", entityId: sessionId, actorType: "SYSTEM", metadata: { message: message.slice(0, 500) } } });
   }
-  async recordNotificationFailure(sessionId: string, message: string): Promise<void> {
-    await this.prisma.auditLog.create({ data: { sessionId, action: "INVOICE_STATUS_EMAIL_FAILED", entityType: "ASSESSMENT_SESSION", entityId: sessionId, actorType: "SYSTEM", metadata: { message: message.slice(0, 500) } } });
-  }
 
   private async transition(sessionId: string, next: AssessmentStatus, data: Prisma.AssessmentSessionUpdateInput, reason: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {

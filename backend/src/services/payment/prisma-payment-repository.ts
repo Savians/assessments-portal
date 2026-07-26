@@ -95,32 +95,45 @@ export class PrismaPaymentRepository implements PaymentRepository {
     ]);
   }
 
-  async findLatestInvoiceStatusEmailSentAt(sessionId: string): Promise<Date | null> {
+  async findLatestInvoiceResendAt(sessionId: string): Promise<Date | null> {
     const latest = await this.prisma.emailEvent.findFirst({
-      where: { sessionId, templateKey: "INVOICE_STATUS", status: DeliveryStatus.SENT, sentAt: { not: null } },
+      where: {
+        sessionId,
+        templateKey: "QUICKBOOKS_INVOICE_RESEND",
+        status: DeliveryStatus.SENT,
+        sentAt: { not: null }
+      },
       orderBy: { sentAt: "desc" },
       select: { sentAt: true }
     });
     return latest?.sentAt ?? null;
   }
 
-  async recordInvoiceStatusEmail(input: {
+  async recordInvoiceResend(input: {
     sessionId: string;
     recipientEmail: string;
-    status: "SENT" | "FAILED" | "SKIPPED";
-    failureReason?: string;
     sentAt: Date;
   }): Promise<void> {
-    await this.prisma.emailEvent.create({
-      data: {
-        sessionId: input.sessionId,
-        templateKey: "INVOICE_STATUS",
-        recipientEmail: input.recipientEmail,
-        status: DeliveryStatus[input.status],
-        failureReason: input.failureReason,
-        sentAt: input.status === "SENT" ? input.sentAt : undefined
-      }
-    });
+    await this.prisma.$transaction([
+      this.prisma.emailEvent.create({
+        data: {
+          sessionId: input.sessionId,
+          templateKey: "QUICKBOOKS_INVOICE_RESEND",
+          recipientEmail: input.recipientEmail,
+          status: DeliveryStatus.SENT,
+          sentAt: input.sentAt
+        }
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          sessionId: input.sessionId,
+          action: "QUICKBOOKS_INVOICE_RESENT",
+          entityType: "ASSESSMENT_SESSION",
+          entityId: input.sessionId,
+          actorType: "CLIENT"
+        }
+      })
+    ]);
   }
 
   async findLatestPaymentSupportRequestAt(sessionId: string): Promise<Date | null> {

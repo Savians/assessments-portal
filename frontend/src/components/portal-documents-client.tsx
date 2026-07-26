@@ -28,9 +28,8 @@ import {
   type DocumentCategory
 } from "@/services/assessment-api";
 import { getCurrentPortalAccessToken } from "@/services/portal-auth";
-import { Button, Card, ErrorAlert, LoadingOverlay, StatusBadge, Stepper, cn } from "@/components/ui";
+import { Button, Card, ErrorAlert, LoadingOverlay, StatusBadge, cn } from "@/components/ui";
 
-const steps = ["Start", "Agreement & invoice", "Payment & account", "Profile & documents"] as const;
 const maxFileSizeBytes = 25 * 1024 * 1024;
 
 const documentFolders: Array<{
@@ -300,8 +299,6 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
           }
         />
       )}
-      {embedded ? null : <Stepper current={3} steps={steps} />}
-
       <Card className={cn(embedded ? "overflow-hidden bg-gradient-to-r from-white via-white to-navy-50/80 p-0" : "mt-8 overflow-hidden bg-gradient-to-r from-white via-white to-navy-50/80 p-0")}>
         <div className="flex flex-col gap-5 p-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">

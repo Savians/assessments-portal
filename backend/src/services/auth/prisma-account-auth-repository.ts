@@ -122,6 +122,74 @@ export class PrismaAccountAuthRepository implements AccountAuthRepository {
     });
   }
 
+  async linkRecoveredAccount(input: {
+    sessionId: string;
+    normalizedEmail: string;
+    cognitoUserId: string;
+    recoveredAt: Date;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const client = await tx.assessmentClient.upsert({
+        where: { normalizedEmail: input.normalizedEmail },
+        update: {
+          cognitoUserId: input.cognitoUserId,
+          emailVerifiedAt: input.recoveredAt
+        },
+        create: {
+          normalizedEmail: input.normalizedEmail,
+          cognitoUserId: input.cognitoUserId,
+          emailVerifiedAt: input.recoveredAt
+        }
+      });
+      const current = await tx.assessmentSession.findUniqueOrThrow({
+        where: { id: input.sessionId },
+        select: { status: true }
+      });
+      const shouldCompleteAccountSetup =
+        current.status === AssessmentStatus.PAID_VERIFIED ||
+        current.status === AssessmentStatus.ACCOUNT_INVITED;
+      const nextStatus = shouldCompleteAccountSetup
+        ? AssessmentStatus.ACCOUNT_CREATED
+        : current.status;
+
+      await tx.assessmentSession.update({
+        where: { id: input.sessionId },
+        data: { clientId: client.id, status: nextStatus }
+      });
+      await tx.accountInvite.updateMany({
+        where: {
+          sessionId: input.sessionId,
+          usedAt: null,
+          revokedAt: null
+        },
+        data: { usedAt: input.recoveredAt }
+      });
+      if (nextStatus !== current.status) {
+        await tx.assessmentStatusHistory.create({
+          data: {
+            sessionId: input.sessionId,
+            oldStatus: current.status,
+            newStatus: nextStatus,
+            reason: "Paid Cognito account recovered and linked",
+            actorType: "CLIENT",
+            actorId: input.cognitoUserId
+          }
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          clientId: client.id,
+          sessionId: input.sessionId,
+          action: "ACCOUNT_PASSWORD_RECOVERED",
+          entityType: "ASSESSMENT_CLIENT",
+          entityId: client.id,
+          actorType: "CLIENT",
+          actorId: input.cognitoUserId
+        }
+      });
+    });
+  }
+
   async recordInviteEmail(input: { sessionId: string; recipientEmail: string; status: "SENT" | "FAILED" | "SKIPPED"; failureReason?: string; sentAt: Date }): Promise<void> {
     await this.prisma.emailEvent.create({
       data: {

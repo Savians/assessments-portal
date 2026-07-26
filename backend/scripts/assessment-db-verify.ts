@@ -19,9 +19,18 @@ async function main() {
     const enums = (await prisma.$queryRaw<Array<{ name: string }>>`SELECT t.typname AS name FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname=${schema} AND t.typtype='e' AND t.typname LIKE 'assessment_%' ORDER BY t.typname`).map((row) => row.name);
     const ledger = await prisma.$queryRaw<Array<{ version: string; name: string; checksum: string }>>`SELECT version,name,checksum FROM assessment_schema_migrations ORDER BY version`;
     const templates = await prisma.$queryRaw<Array<{ version: string; docx_sha256: string; pdf_sha256: string; is_active: boolean }>>`SELECT version,docx_sha256,pdf_sha256,is_active FROM assessment_agreement_templates WHERE version='2026-v1.4'`;
+    const deferredColumns = await prisma.$queryRaw<Array<{ column_name: string; is_nullable: string }>>`
+      SELECT column_name, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema=${schema}
+        AND table_name='assessment_sessions'
+        AND column_name IN ('date_of_birth', 'client_type', 'state')
+      ORDER BY column_name
+    `;
     if (JSON.stringify(tables) !== JSON.stringify(expectedTables)) throw new Error(`Assessment table mismatch: ${tables.join(',')}`);
     if (JSON.stringify(enums) !== JSON.stringify(expectedEnums)) throw new Error(`Assessment enum mismatch: ${enums.join(',')}`);
-    if (ledger.length !== 5 || ledger.some((row) => row.checksum.length !== 64)) throw new Error("Assessment ledger verification failed");
+    if (ledger.length !== 6 || ledger.some((row) => row.checksum.length !== 64)) throw new Error("Assessment ledger verification failed");
+    if (deferredColumns.length !== 3 || deferredColumns.some((column) => column.is_nullable !== "YES")) throw new Error("Deferred assessment fields must be nullable");
     const template = templates[0];
     if (!template?.is_active || template.docx_sha256 !== "566eb770dfff39987de06ce08a0c936235cd5f51bedac657d633e19f9d3de179" || template.pdf_sha256 !== "12b86ceede1bcff2fda8f8489da01e0077d2ee4c145a6132c21f3d0720a98735") throw new Error("Legal template verification failed");
     console.log(`VERIFIED schema=${schema} tables=${tables.length} enums=${enums.length} migrations=${ledger.length} active_template=${template.version}`);

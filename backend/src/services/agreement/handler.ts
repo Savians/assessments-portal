@@ -6,7 +6,6 @@ import { getPrismaClient } from "../../shared/prisma-client";
 import { AgreementFlowError, AgreementService } from "./agreement-service";
 import { PrismaAgreementRepository } from "./prisma-agreement-repository";
 import { IntuitQuickBooksGateway, type QuickBooksGateway } from "./quickbooks-client";
-import { ResendInvoiceStatusNotifier } from "./resend-invoice-status-notifier";
 import { S3AgreementPdfProvider } from "./s3-agreement-pdf-provider";
 
 const json = (statusCode: number, body: unknown) => ({ statusCode, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" }, body: JSON.stringify(body) });
@@ -25,7 +24,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
       createInvoice: (input) => (gateway ??= new IntuitQuickBooksGateway(secrets, persistQuickBooksRefreshToken)).createInvoice(input),
       sendInvoice: (id, email, requestId) => (gateway ??= new IntuitQuickBooksGateway(secrets, persistQuickBooksRefreshToken)).sendInvoice(id, email, requestId)
     };
-    const service = new AgreementService(repository, new S3AgreementPdfProvider(process.env.S3_DOCUMENTS_BUCKET ?? ""), quickBooks, new ResendInvoiceStatusNotifier(secrets), process.env.FRONTEND_URL ?? "http://localhost:3000");
+    const service = new AgreementService(
+      repository,
+      new S3AgreementPdfProvider(process.env.S3_DOCUMENTS_BUCKET ?? ""),
+      quickBooks
+    );
     const method = event.requestContext.http.method;
     if (method === "GET") {
       const token = event.pathParameters?.token;

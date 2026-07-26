@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, LockKeyhole, ReceiptText, ShieldCheck } from "lucide-react";
 import { Card, StatusBadge, Stepper } from "@/components/ui";
+import { ONBOARDING_STEPS } from "@/lib/assessment-flow";
 import { formatServiceAmount } from "@/lib/constants";
 
 const routeDetails: Record<string, { title: string; description: string; step: number }> = {
@@ -46,8 +47,6 @@ const routeDetails: Record<string, { title: string; description: string; step: n
   }
 };
 
-const steps = ["Start", "Agreement & invoice", "Payment & account", "Profile & documents"] as const;
-
 function LandingPage() {
   return (
     <>
@@ -64,44 +63,40 @@ function LandingPage() {
               A {formatServiceAmount()} proactive tax review designed to uncover legal,
               IRS-compliant savings opportunities before you file.
             </p>
-            <div className="mt-9 flex flex-wrap items-center gap-4">
+          </div>
+          <div className="grid gap-4">
+            <Card className="border-white/10 bg-white text-slate-800">
+              <p className="text-sm font-semibold uppercase tracking-wider text-navy-500">
+                Tax Assessment Fee
+              </p>
+              <p className="mt-2 text-4xl font-bold text-navy-800">{formatServiceAmount()}</p>
+              <ul className="mt-6 grid gap-4 text-sm">
+                {[
+                  "One-on-one tax deep dive",
+                  "Two-year retroactive tax review",
+                  "Projected tax liability analysis",
+                  "Personalized tax savings plan",
+                  "Strategy roadmap"
+                ].map((item) => (
+                  <li className="flex gap-3" key={item}>
+                    <CheckCircle2 aria-hidden className="shrink-0 text-emerald-600" size={19} />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <div className="grid gap-3">
               <Link
-                className="focus-ring inline-flex min-h-12 items-center gap-2 rounded-lg bg-gold-400 px-6 py-3 font-bold text-navy-900 hover:bg-gold-100"
+                className="focus-ring inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-gold-400 px-6 py-3 font-bold text-navy-900 hover:bg-gold-100"
                 href="/assessment/start"
               >
                 Start My Assessment <ArrowRight aria-hidden size={18} />
               </Link>
-              <Link
-                className="focus-ring inline-flex min-h-12 items-center gap-2 rounded-lg border border-white/25 px-6 py-3 font-bold text-white hover:bg-white/10"
-                href="/login"
-              >
-                Sign In / Resume
-              </Link>
-              <span className="flex items-center gap-2 text-sm text-slate-300">
+              <span className="flex items-center justify-center gap-2 text-sm text-slate-300">
                 <LockKeyhole aria-hidden size={17} /> Portal access unlocks after verified payment
               </span>
             </div>
           </div>
-          <Card className="border-white/10 bg-white text-slate-800">
-            <p className="text-sm font-semibold uppercase tracking-wider text-navy-500">
-              Tax Assessment Fee
-            </p>
-            <p className="mt-2 text-4xl font-bold text-navy-800">{formatServiceAmount()}</p>
-            <ul className="mt-6 grid gap-4 text-sm">
-              {[
-                "One-on-one tax deep dive",
-                "Two-year retroactive tax review",
-                "Projected tax liability analysis",
-                "Personalized tax savings plan",
-                "Strategy roadmap"
-              ].map((item) => (
-                <li className="flex gap-3" key={item}>
-                  <CheckCircle2 aria-hidden className="shrink-0 text-emerald-600" size={19} />
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </Card>
         </div>
       </section>
       <section className="py-16 sm:py-20">
@@ -181,12 +176,6 @@ function LandingPage() {
           >
             Start My Assessment <ArrowRight aria-hidden size={18} />
           </Link>
-          <Link
-            className="focus-ring inline-flex min-h-12 items-center gap-2 rounded-lg border border-navy-800 px-6 py-3 font-bold text-navy-800"
-            href="/login"
-          >
-            Sign In / Resume
-          </Link>
         </div>
       </section>
     </>
@@ -204,7 +193,7 @@ function PlaceholderPage({
 }) {
   return (
     <section className="page-shell min-h-[65vh] py-12 sm:py-16">
-      <Stepper current={step} steps={steps} />
+      <Stepper current={step} steps={ONBOARDING_STEPS} />
       <Card className="mt-10">
         <StatusBadge status="active">Phase 1 foundation</StatusBadge>
         <h1 className="mt-5 text-3xl font-bold text-navy-800 sm:text-4xl">{title}</h1>

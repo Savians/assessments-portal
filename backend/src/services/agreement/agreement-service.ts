@@ -25,10 +25,8 @@ export interface AgreementRepository {
   saveQuickBooksInvoice(sessionId: string, invoice: { id: string; number?: string; balance: number }, requestId: string): Promise<void>;
   markInvoiceSent(sessionId: string): Promise<void>;
   recordBillingFailure(sessionId: string, message: string): Promise<void>;
-  recordNotificationFailure(sessionId: string, message: string): Promise<void>;
 }
 export interface AgreementPdfProvider { getReadUrl(key: string): Promise<string>; }
-export interface InvoiceStatusNotifier { send(input: { sessionId: string; email: string; firstName: string; invoiceNumber?: string; amount: number; statusUrl: string }): Promise<void>; }
 
 export class AgreementFlowError extends Error {
   constructor(readonly code: string, message: string, readonly statusCode: number) { super(message); }
@@ -46,8 +44,6 @@ export class AgreementService {
     private readonly repository: AgreementRepository,
     private readonly pdfProvider: AgreementPdfProvider,
     private readonly quickBooks: QuickBooksGateway,
-    private readonly notifier: InvoiceStatusNotifier,
-    private readonly frontendUrl: string,
     private readonly now: () => Date = () => new Date()
   ) {}
 
@@ -135,14 +131,6 @@ export class AgreementService {
       await this.quickBooks.sendInvoice(session.qbInvoiceId, session.normalizedEmail, requestId("send-invoice", session.id));
       billingStep = "mark-invoice-sent";
       await this.repository.markInvoiceSent(session.id);
-      const statusUrl = `${this.frontendUrl.replace(/\/$/, "")}/assessment/status/${input.token}`;
-      try {
-        billingStep = "notify-client";
-        await this.notifier.send({ sessionId: session.id, email: session.normalizedEmail, firstName: session.firstName,
-          invoiceNumber: session.qbInvoiceNumber ?? undefined, amount: session.serviceAmount, statusUrl });
-      } catch (error) {
-        await this.repository.recordNotificationFailure(session.id, error instanceof Error ? error.message : "Unknown notification error");
-      }
       return { status: "PAYMENT_PENDING", nextUrl: `/assessment/status/${input.token}`, invoiceNumber: session.qbInvoiceNumber };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown billing error";

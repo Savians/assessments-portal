@@ -130,7 +130,7 @@ export function StatusBadge({
 
 export function Stepper({ current, steps }: { current: number; steps: readonly string[] }) {
   return (
-    <ol className="grid gap-3 sm:grid-cols-4" aria-label="Assessment progress">
+    <ol className="grid gap-3 sm:grid-cols-3" aria-label="Assessment progress">
       {steps.map((step, index) => (
         <li className="flex items-center gap-2 text-sm" key={step}>
           <span

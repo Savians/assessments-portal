@@ -8,7 +8,6 @@ import { getApplicationSecrets } from "../src/shared/application-secrets";
 import { AgreementService } from "../src/services/agreement/agreement-service";
 import { PrismaAgreementRepository } from "../src/services/agreement/prisma-agreement-repository";
 import { IntuitQuickBooksGateway } from "../src/services/agreement/quickbooks-client";
-import { ResendInvoiceStatusNotifier } from "../src/services/agreement/resend-invoice-status-notifier";
 
 const backend = path.resolve(__dirname, "..");
 const envPath = path.join(backend, ".env");
@@ -44,7 +43,6 @@ async function main() {
   const recipient = process.env.CONTROLLED_TEST_EMAIL?.trim().toLowerCase();
   if (!recipient || recipient !== "thearpit2005@gmail.com") throw new Error("CONTROLLED_TEST_EMAIL must be the explicitly approved recipient");
   const secrets = await getApplicationSecrets();
-  const emailSecrets = { ...secrets, EMAIL_ENABLED: true };
   const prisma = new PrismaClient({ datasourceUrl: secrets.DATABASE_URL });
   const now = new Date();
   const assessmentYear = now.getUTCFullYear();
@@ -74,10 +72,7 @@ async function main() {
 
     const repository = new PrismaAgreementRepository(prisma);
     const qbo = new IntuitQuickBooksGateway(secrets, persistRotatedToken);
-    const resend = new ResendInvoiceStatusNotifier(emailSecrets);
-    let statusEmailSent = false;
-    const notifier = { send: async (input: Parameters<ResendInvoiceStatusNotifier["send"]>[0]) => { await resend.send(input); statusEmailSent = true; } };
-    const service = new AgreementService(repository, { getReadUrl: async () => "" }, qbo, notifier, "https://staging.assessments.savians.com");
+    const service = new AgreementService(repository, { getReadUrl: async () => "" }, qbo);
     let result;
     try {
       result = await service.accept({ token, typedSignatureName: "Arpit Assessment Sandbox Test", acknowledgementAccepted: true }, { ipAddress: "127.0.0.1", userAgent: "savians-assessment-controlled-test/1.0" });
@@ -98,9 +93,8 @@ async function main() {
     if (result.status !== "PAYMENT_PENDING" || verified.status !== AssessmentStatus.PAYMENT_PENDING) throw new Error("Controlled session did not reach PAYMENT_PENDING");
     if (!verified.qbCustomerId || !verified.qbInvoiceId || !verified.qbInvoiceNumber || verified.qbInvoiceBalance?.toNumber() !== 2997) throw new Error("QuickBooks invoice evidence is incomplete");
     if (verified.signatures.length !== 1 || verified.signatures[0]?.evidencePayloadSha256.length !== 64) throw new Error("Agreement signature evidence is incomplete");
-    if (!statusEmailSent && session.status !== AssessmentStatus.PAYMENT_PENDING) throw new Error("Savians status email was not sent");
-    await prisma.auditLog.create({ data: { sessionId: session.id, action: "CONTROLLED_SANDBOX_TEST_PASSED", entityType: "ASSESSMENT_SESSION", entityId: session.id, actorType: "SYSTEM", metadata: { invoiceNumber: verified.qbInvoiceNumber, statusEmailSent } } });
-    console.log(`CONTROLLED TEST PASSED status=${verified.status} invoiceNumber=${verified.qbInvoiceNumber} balance=${verified.qbInvoiceBalance?.toFixed(2)} agreementEvidence=true statusEmailSent=${statusEmailSent}`);
+    await prisma.auditLog.create({ data: { sessionId: session.id, action: "CONTROLLED_SANDBOX_TEST_PASSED", entityType: "ASSESSMENT_SESSION", entityId: session.id, actorType: "SYSTEM", metadata: { invoiceNumber: verified.qbInvoiceNumber, quickBooksInvoiceSent: true } } });
+    console.log(`CONTROLLED TEST PASSED status=${verified.status} invoiceNumber=${verified.qbInvoiceNumber} balance=${verified.qbInvoiceBalance?.toFixed(2)} agreementEvidence=true quickBooksInvoiceSent=true`);
   } finally { await prisma.$disconnect(); }
 }
 

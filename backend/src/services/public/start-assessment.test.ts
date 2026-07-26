@@ -84,14 +84,8 @@ const validInput = {
   firstName: " John ",
   middleName: "",
   lastName: "Smith",
-  dateOfBirth: "1980-03-15",
   email: "JOHN@EXAMPLE.COM ",
   phone: "(832) 555-1212",
-  clientType: "BUSINESS_OWNER",
-  businessName: "Smith Consulting LLC",
-  state: "tx",
-  incomeRange: "$250K-$500K",
-  estimatedTaxPaidRange: "$50K-$100K",
   consentAccepted: true
 } as const;
 
@@ -111,6 +105,8 @@ describe("StartAssessmentService", () => {
     expect(repository.sessions).toHaveLength(1);
     expect(repository.createInputs[0]?.normalizedEmail).toBe("john@example.com");
     expect(repository.createInputs[0]?.phone).toBe("+18325551212");
+    expect(repository.createInputs[0]).not.toHaveProperty("dateOfBirth");
+    expect(repository.createInputs[0]).not.toHaveProperty("clientType");
 
     const rawToken = result.nextUrl.split("/").at(-1);
     expect(rawToken).toBeDefined();
@@ -232,13 +228,13 @@ describe("StartAssessmentService", () => {
     expect(result.nextUrl).toMatch(/^\/assessment\/agreement\//);
   });
 
-  it("rejects future DOB, missing consent, and missing conditional business name", () => {
+  it("rejects invalid contact information and missing consent", () => {
     expect(() =>
       startAssessmentSchema.parse({
         ...validInput,
-        dateOfBirth: "2999-01-01",
+        email: "invalid",
+        phone: "123",
         consentAccepted: false,
-        businessName: ""
       })
     ).toThrow();
   });

@@ -9,11 +9,29 @@ const claims: PortalClaims = {
   "cognito:groups": "ASSESSMENT_CLIENT"
 };
 
-const prisma = (client: unknown): PrismaClient => ({
+const prisma = (client: unknown, repairableSession: {
+  id: string;
+  clientId: string | null;
+  status: "PAID_VERIFIED" | "ACCOUNT_INVITED" | "ACCOUNT_CREATED";
+  assessmentYear: number;
+} | null = null): PrismaClient => ({
   assessmentClient: {
     findUnique: async () => client,
     update: async () => client
-  }
+  },
+  $transaction: async (callback: (tx: unknown) => unknown) => callback({
+    assessmentClient: {
+      findUnique: async () => null,
+      upsert: async () => ({ id: "client-repaired" })
+    },
+    assessmentSession: {
+      findFirst: async () => repairableSession,
+      update: async () => repairableSession
+    },
+    accountInvite: { updateMany: async () => ({ count: 1 }) },
+    assessmentStatusHistory: { create: async () => ({}) },
+    auditLog: { create: async () => ({}) }
+  })
 }) as unknown as PrismaClient;
 
 describe("portal entitlement", () => {
@@ -23,6 +41,19 @@ describe("portal entitlement", () => {
 
   it("requires a paid linked DB entitlement in addition to Cognito claims", async () => {
     await expect(assertPaidPortalEntitlement(prisma(null), claims)).rejects.toMatchObject({ code: "PAID_ENTITLEMENT_REQUIRED" });
+  });
+
+  it("repairs a paid existing account that was left unlinked after password recovery", async () => {
+    await expect(assertPaidPortalEntitlement(prisma(null, {
+      id: "session-paid",
+      clientId: null,
+      status: "ACCOUNT_INVITED",
+      assessmentYear: 2026
+    }), claims)).resolves.toEqual({
+      clientId: "client-repaired",
+      sessionId: "session-paid",
+      assessmentYear: 2026
+    });
   });
 
   it("allows a paid linked DB entitlement even when the fresh Cognito group claim is missing", async () => {

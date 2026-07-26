@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AssessmentStartForm } from "@/components/assessment-start-form";
 import { Card, Stepper } from "@/components/ui";
+import { ONBOARDING_STEPS } from "@/lib/assessment-flow";
 import { formatServiceAmount } from "@/lib/constants";
 
 export const metadata: Metadata = {
@@ -9,12 +10,10 @@ export const metadata: Metadata = {
   description: "Start or resume your annual Savians Tax Assessment."
 };
 
-const steps = ["Start", "Agreement & invoice", "Payment & account", "Profile & documents"] as const;
-
 export default function StartAssessmentPage() {
   return (
     <section className="page-shell py-10 sm:py-14">
-      <Stepper current={0} steps={steps} />
+      <Stepper current={0} steps={ONBOARDING_STEPS} />
       <div className="mx-auto mt-10 max-w-4xl">
         <div className="mb-7">
           <p className="font-semibold text-gold-600">Tax Assessment Fee: {formatServiceAmount()}</p>
@@ -39,4 +38,3 @@ export default function StartAssessmentPage() {
     </section>
   );
 }
-

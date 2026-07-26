@@ -5,48 +5,30 @@ const valid = {
   firstName: "John",
   middleName: "",
   lastName: "Smith",
-  dateOfBirth: "1980-03-15",
   email: "john@example.com",
   phone: "(832) 555-1212",
-  clientType: "BUSINESS_OWNER",
-  businessName: "Smith Consulting LLC",
-  state: "TX",
-  incomeRange: "$250K-$500K",
-  estimatedTaxPaidRange: "$50K-$100K",
   consentAccepted: true
 } as const;
 
 describe("assessmentStartSchema", () => {
-  it("accepts the build-spec example", () => {
+  it("accepts the streamlined contact-only start payload", () => {
     expect(assessmentStartSchema.parse(valid)).toEqual(valid);
   });
 
-  it("makes DOB and consent mandatory", () => {
+  it("requires valid contact information and consent", () => {
     expect(
       assessmentStartSchema.safeParse({
         ...valid,
-        dateOfBirth: "",
+        email: "not-an-email",
+        phone: "123",
         consentAccepted: false
       }).success
     ).toBe(false);
   });
 
-  it("requires business name for business-owner context", () => {
+  it("does not require identity or assessment context before payment", () => {
     expect(
-      assessmentStartSchema.safeParse({
-        ...valid,
-        businessName: ""
-      }).success
-    ).toBe(false);
-  });
-
-  it("allows business name to remain empty for an individual", () => {
-    expect(
-      assessmentStartSchema.safeParse({
-        ...valid,
-        clientType: "INDIVIDUAL",
-        businessName: ""
-      }).success
+      assessmentStartSchema.safeParse(valid).success
     ).toBe(true);
   });
 });

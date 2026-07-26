@@ -7,21 +7,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import {
   assessmentStartSchema,
-  clientTypeOptions,
-  incomeRangeOptions,
-  taxPaidRangeOptions,
   type AssessmentStartFormValues
 } from "@/lib/assessment-start-schema";
 import { AssessmentApiError, startAssessment } from "@/services/assessment-api";
-import { Button, Checkbox, ErrorAlert, Input, Select } from "@/components/ui";
-
-const states = [
-  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
-  "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
-  "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
-  "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
-  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"
-] as const;
+import { Button, Checkbox, ErrorAlert, Input } from "@/components/ui";
 
 export function AssessmentStartForm() {
   const router = useRouter();
@@ -29,7 +18,6 @@ export function AssessmentStartForm() {
   const {
     register,
     handleSubmit,
-    watch,
     setError,
     formState: { errors, isSubmitting }
   } = useForm<AssessmentStartFormValues>({
@@ -38,20 +26,11 @@ export function AssessmentStartForm() {
       firstName: "",
       middleName: "",
       lastName: "",
-      dateOfBirth: "",
       email: "",
       phone: "",
-      clientType: "INDIVIDUAL",
-      businessName: "",
-      state: "",
-      incomeRange: "",
-      estimatedTaxPaidRange: "",
       consentAccepted: false
     }
   });
-
-  const clientType = watch("clientType");
-  const showBusinessName = clientType === "BUSINESS_OWNER" || clientType === "OTHER";
 
   const onSubmit = async (values: AssessmentStartFormValues) => {
     try {
@@ -110,14 +89,6 @@ export function AssessmentStartForm() {
         </div>
         <div className="grid gap-5 md:grid-cols-2">
           <Input
-            label="Date of birth *"
-            type="date"
-            autoComplete="bday"
-            max={new Date().toISOString().slice(0, 10)}
-            error={errors.dateOfBirth?.message}
-            {...register("dateOfBirth")}
-          />
-          <Input
             label="Phone *"
             type="tel"
             inputMode="tel"
@@ -126,72 +97,13 @@ export function AssessmentStartForm() {
             error={errors.phone?.message}
             {...register("phone")}
           />
-        </div>
-        <Input
-          label="Email address *"
-          type="email"
-          autoComplete="email"
-          error={errors.email?.message}
-          {...register("email")}
-        />
-      </fieldset>
-
-      <fieldset className="grid gap-5 border-t border-slate-200 pt-7">
-        <legend className="mb-4 text-xl font-bold text-navy-800">Assessment context</legend>
-        <div className="grid gap-5 md:grid-cols-2">
-          <Select
-            label="Client type *"
-            error={errors.clientType?.message}
-            {...register("clientType")}
-          >
-            {clientTypeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-          <Select label="State *" error={errors.state?.message} {...register("state")}>
-            <option value="">Select state</option>
-            {states.map((state) => (
-              <option key={state} value={state}>
-                {state}
-              </option>
-            ))}
-          </Select>
-        </div>
-        {showBusinessName ? (
           <Input
-            label="Business name *"
-            autoComplete="organization"
-            error={errors.businessName?.message}
-            {...register("businessName")}
+            label="Email address *"
+            type="email"
+            autoComplete="email"
+            error={errors.email?.message}
+            {...register("email")}
           />
-        ) : null}
-        <div className="grid gap-5 md:grid-cols-2">
-          <Select
-            label="Estimated annual income"
-            error={errors.incomeRange?.message}
-            {...register("incomeRange")}
-          >
-            <option value="">Prefer not to say</option>
-            {incomeRangeOptions.map((range) => (
-              <option key={range} value={range}>
-                {range}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Estimated annual tax paid"
-            error={errors.estimatedTaxPaidRange?.message}
-            {...register("estimatedTaxPaidRange")}
-          >
-            <option value="">Prefer not to say</option>
-            {taxPaidRangeOptions.map((range) => (
-              <option key={range.value} value={range.value}>
-                {range.label}
-              </option>
-            ))}
-          </Select>
         </div>
       </fieldset>
 

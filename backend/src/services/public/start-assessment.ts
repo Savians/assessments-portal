@@ -2,52 +2,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { log } from "../../shared/logger";
 
-const clientTypes = [
-  "INDIVIDUAL",
-  "BUSINESS_OWNER",
-  "REAL_ESTATE_INVESTOR",
-  "W2_HIGH_EARNER",
-  "OTHER"
-] as const;
-
-const incomeRanges = ["$150K-$250K", "$250K-$500K", "$500K-$1M", "$1M+"] as const;
-const taxPaidRanges = ["UNDER_$25K", "$25K-$50K", "$50K-$100K", "$100K+"] as const;
-
-const isValidPastDate = (value: string): boolean => {
-  const date = new Date(value + "T00:00:00.000Z");
-  return !Number.isNaN(date.getTime()) && date <= new Date();
-};
-
-export const startAssessmentSchema = z
-  .object({
-    firstName: z.string().trim().min(1).max(60),
-    middleName: z.string().trim().max(60).optional().or(z.literal("")),
-    lastName: z.string().trim().min(1).max(60),
-    dateOfBirth: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Date of birth must use YYYY-MM-DD")
-      .refine(isValidPastDate, "Date of birth must be a valid non-future date"),
-    email: z.string().trim().email().max(320),
-    phone: z.string().trim().min(10).max(32),
-    clientType: z.enum(clientTypes),
-    businessName: z.string().trim().max(255).optional().or(z.literal("")),
-    state: z.string().trim().regex(/^[A-Za-z]{2}$/, "Select a valid US state"),
-    incomeRange: z.enum(incomeRanges).optional().or(z.literal("")),
-    estimatedTaxPaidRange: z.enum(taxPaidRanges).optional().or(z.literal("")),
-    consentAccepted: z.literal(true)
-  })
-  .superRefine((value, context) => {
-    if (
-      (value.clientType === "BUSINESS_OWNER" || value.clientType === "OTHER") &&
-      !value.businessName
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["businessName"],
-        message: "Business name is required for this client type"
-      });
-    }
-  });
+export const startAssessmentSchema = z.object({
+  firstName: z.string().trim().min(1).max(60),
+  middleName: z.string().trim().max(60).optional().or(z.literal("")),
+  lastName: z.string().trim().min(1).max(60),
+  email: z.string().trim().email().max(320),
+  phone: z.string().trim().min(10).max(32),
+  consentAccepted: z.literal(true)
+});
 
 export type StartAssessmentInput = z.infer<typeof startAssessmentSchema>;
 
@@ -85,12 +47,6 @@ export interface CreateAssessmentRecord {
   firstName: string;
   middleName?: string;
   lastName: string;
-  dateOfBirth: Date;
-  clientType: (typeof clientTypes)[number];
-  businessName?: string;
-  state: string;
-  incomeRange?: string;
-  estimatedTaxPaidRange?: string;
   assessmentYear: number;
   statusTokenHash: string;
   statusTokenExpiresAt: Date;
@@ -234,12 +190,6 @@ export class StartAssessmentService {
           firstName: input.firstName,
           middleName: input.middleName || undefined,
           lastName: input.lastName,
-          dateOfBirth: new Date(input.dateOfBirth + "T00:00:00.000Z"),
-          clientType: input.clientType,
-          businessName: input.businessName || undefined,
-          state: input.state.toUpperCase(),
-          incomeRange: input.incomeRange || undefined,
-          estimatedTaxPaidRange: input.estimatedTaxPaidRange || undefined,
           assessmentYear,
           statusTokenHash,
           statusTokenExpiresAt,

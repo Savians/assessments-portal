@@ -24,11 +24,19 @@ const session: PortalSessionSeed = {
   middleName: null,
   lastName: "Shah",
   dateOfBirth: new Date("1988-03-14T00:00:00.000Z"),
+  clientType: "INDIVIDUAL",
+  businessName: null,
   state: "CA",
+  incomeRange: "$250K-$500K",
+  estimatedTaxPaidRange: "$50K-$100K",
   assessmentYear: 2026
 };
 
 const completeInput: SavePortalProfileInput = {
+  primaryDateOfBirth: "1988-03-14",
+  clientType: "INDIVIDUAL",
+  incomeRange: "$250K-$500K",
+  estimatedTaxPaidRange: "$50K-$100K",
   householdName: "Shah Household",
   homeAddress: "10 Market Street",
   city: "San Francisco",
@@ -70,10 +78,13 @@ const completeInput: SavePortalProfileInput = {
 class InMemoryProfileRepository implements PortalProfileRepository {
   savedInput: SavePortalProfileInput | null = null;
 
-  constructor(private profile: StoredClientProfile | null = null) {}
+  constructor(
+    private profile: StoredClientProfile | null = null,
+    private readonly sessionSeed: PortalSessionSeed = session
+  ) {}
 
   async findSession(): Promise<PortalSessionSeed | null> {
-    return session;
+    return this.sessionSeed;
   }
 
   async findProfile(): Promise<StoredClientProfile | null> {
@@ -145,7 +156,9 @@ describe("portal profile service", () => {
       clientId: "client-1",
       primaryTaxpayer: {
         firstName: "Priya",
-        dateOfBirth: "1988-03-14"
+        dateOfBirth: "1988-03-14",
+        clientType: "INDIVIDUAL",
+        incomeRange: "$250K-$500K"
       },
       profile: {
         state: "CA",
@@ -156,6 +169,28 @@ describe("portal profile service", () => {
         status: "NOT_STARTED",
         progressPercent: 0
       }
+    });
+  });
+
+  it("loads deferred fields as empty until the paid profile is completed", async () => {
+    const service = new PortalProfileService(new InMemoryProfileRepository(null, {
+      ...session,
+      dateOfBirth: null,
+      clientType: null,
+      businessName: null,
+      state: null,
+      incomeRange: null,
+      estimatedTaxPaidRange: null
+    }));
+    await expect(service.load(entitlement)).resolves.toMatchObject({
+      primaryTaxpayer: {
+        dateOfBirth: "",
+        clientType: "",
+        businessName: "",
+        incomeRange: "",
+        estimatedTaxPaidRange: ""
+      },
+      profile: { state: "" }
     });
   });
 
@@ -173,6 +208,16 @@ describe("portal profile service", () => {
       dependents: [{ firstName: "Mira", lastName: "Shah" }]
     };
     await expect(service.save(entitlement, rawInput)).rejects.toBeInstanceOf(ZodError);
+  });
+
+  it("requires the deferred primary identity and conditional business context", async () => {
+    const service = new PortalProfileService(new InMemoryProfileRepository());
+    await expect(service.save(entitlement, {
+      ...completeInput,
+      primaryDateOfBirth: "",
+      clientType: "BUSINESS_OWNER",
+      businessName: ""
+    })).rejects.toBeInstanceOf(ZodError);
   });
 
   it("rejects spouse details for non-married profiles", async () => {
@@ -206,5 +251,6 @@ describe("portal profile service", () => {
       }
     });
     expect(repository.savedInput?.state).toBe("CA");
+    expect(repository.savedInput?.primaryDateOfBirth).toBe("1988-03-14");
   });
 });

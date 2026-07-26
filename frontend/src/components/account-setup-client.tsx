@@ -14,8 +14,7 @@ import {
 } from "@/services/assessment-api";
 import { signInToPortal } from "@/services/portal-auth";
 import { Button, Card, ErrorAlert, Input, LoadingOverlay, StatusBadge, Stepper } from "@/components/ui";
-
-const steps = ["Start", "Agreement & invoice", "Payment & account", "Profile & documents"] as const;
+import { ONBOARDING_STEPS } from "@/lib/assessment-flow";
 type SetupPhase = "PASSWORD" | "CONFIRM" | "EXISTING" | "DONE";
 
 export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
@@ -150,7 +149,7 @@ export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
 
   return (
     <div className="page-shell py-10">
-      <Stepper current={2} steps={steps} />
+      <Stepper current={2} steps={ONBOARDING_STEPS} />
       <Card className="mx-auto mt-8 max-w-2xl">
         <StatusBadge status={phase === "DONE" ? "complete" : "active"}>Paid account setup</StatusBadge>
         <h1 className="mt-4 text-3xl font-bold text-navy-800">
@@ -161,6 +160,19 @@ export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
             This invite is for <strong>{details.clientName}</strong> ({details.email}) for the {details.assessmentYear} assessment.
             It expires on {new Date(details.expiresAt).toLocaleString()}.
           </p>
+        ) : null}
+        {details ? (
+          <div className="mt-5 flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950" role="status">
+            <CheckCircle2 aria-hidden className="mt-0.5 shrink-0 text-emerald-700" size={20} />
+            <div>
+              <p className="font-semibold">Payment successful</p>
+              <p className="mt-1 text-sm leading-6">
+                Your payment has been verified. Please spend a few minutes setting up your secure
+                account, completing your profile, and uploading the necessary documents. After
+                your account is set up, you can sign in and return at any time.
+              </p>
+            </div>
+          </div>
         ) : null}
         {error ? <div className="mt-5"><ErrorAlert>{error}</ErrorAlert></div> : null}
         {message ? <p className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">{message}</p> : null}

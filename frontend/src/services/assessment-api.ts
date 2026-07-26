@@ -112,6 +112,7 @@ export interface PaymentStatusResponse {
   lastStatusCheckedAt?: string;
   paymentVerifiedAt?: string;
   accountCreationAllowed: boolean;
+  invoiceResendAllowed: boolean;
   invoiceEmailResendAvailableAt?: string;
   nextUrl: string;
 }
@@ -273,6 +274,9 @@ export async function claimExistingAccount(input: { inviteToken: string; accessT
 export type ResidentStatus = "US_CITIZEN" | "GREEN_CARD_HOLDER" | "VISA" | "OTHER";
 export type MaritalStatus = "SINGLE" | "MARRIED" | "DIVORCED" | "WIDOWED";
 export type PreferredContact = "EMAIL" | "PHONE" | "EITHER";
+export type ClientType = "INDIVIDUAL" | "BUSINESS_OWNER" | "REAL_ESTATE_INVESTOR" | "W2_HIGH_EARNER" | "OTHER";
+export type IncomeRange = "$150K-$250K" | "$250K-$500K" | "$500K-$1M" | "$1M+";
+export type TaxPaidRange = "UNDER_$25K" | "$25K-$50K" | "$50K-$100K" | "$100K+";
 
 export interface PortalHouseholdMember {
   id?: string;
@@ -316,6 +320,10 @@ export interface PortalProfileResponse {
     middleName: string;
     lastName: string;
     dateOfBirth: string;
+    clientType: ClientType | "";
+    businessName: string;
+    incomeRange: IncomeRange | "";
+    estimatedTaxPaidRange: TaxPaidRange | "";
     email: string;
     phone: string;
   };
@@ -399,6 +407,11 @@ export interface PortalDashboardResponse extends PortalProfileResponse {
 
 export interface SavePortalProfileRequest extends PortalProfilePayload {
   householdName?: never;
+  primaryDateOfBirth: string;
+  clientType: ClientType | "";
+  businessName: string;
+  incomeRange: IncomeRange | "";
+  estimatedTaxPaidRange: TaxPaidRange | "";
   spouse: Omit<PortalHouseholdMember, "id"> | null;
   dependents: Array<Omit<PortalHouseholdMember, "id">>;
 }

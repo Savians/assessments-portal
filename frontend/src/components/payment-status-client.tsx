@@ -14,8 +14,7 @@ import {
   type PaymentStatusResponse
 } from "@/services/assessment-api";
 import { Button, Card, ErrorAlert, LoadingOverlay, StatusBadge, Stepper } from "@/components/ui";
-
-const steps = ["Start", "Agreement & invoice", "Payment & account", "Profile & documents"] as const;
+import { ONBOARDING_STEPS } from "@/lib/assessment-flow";
 
 const formatMoney = (amount?: number, currency = "USD") =>
   typeof amount === "number"
@@ -207,7 +206,7 @@ export function PaymentStatusClient({ token }: { token: string }) {
 
   return (
     <div className="page-shell py-10">
-      <Stepper current={2} steps={steps} />
+      <Stepper current={2} steps={ONBOARDING_STEPS} />
       <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_360px]">
         <Card>
           <StatusBadge status={badge.status}>{badge.label}</StatusBadge>
@@ -288,7 +287,7 @@ export function PaymentStatusClient({ token }: { token: string }) {
                   type="button"
                   variant="outline"
                   onClick={resend}
-                  disabled={refreshing || resending || resendCooldown > 0 || !details?.invoiceNumber}
+                  disabled={refreshing || resending || resendCooldown > 0 || !details?.invoiceResendAllowed}
                 >
                   <Mail aria-hidden className="mr-2" size={17} />
                   {resending

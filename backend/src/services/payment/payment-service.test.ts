@@ -18,15 +18,24 @@ class Repo implements PaymentRepository {
     qbInvoiceBalance: 2997,
     accountCreationAllowed: false
   };
-  stillOpen = 0; paid = 0; failed = 0; emails = 0; supportRequests = 0; latestEmailSentAt: Date | null = null; latestSupportAt: Date | null = null;
+  stillOpen = 0;
+  paid = 0;
+  failed = 0;
+  invoiceResends = 0;
+  supportRequests = 0;
+  latestInvoiceResendAt: Date | null = null;
+  latestSupportAt: Date | null = null;
   async findSessionByTokenHash() { return this.session; }
   async findSessionByInvoiceId(invoiceId: string) { return invoiceId === this.session.qbInvoiceId ? this.session : null; }
   async findOpenInvoiceSessions() { return [this.session]; }
   async recordStillOpen(_sessionId: string, balance: number, checkedAt: Date) { this.stillOpen++; this.session.qbInvoiceBalance = balance; this.session.lastStatusCheckedAt = checkedAt; }
   async recordPaidVerified(_sessionId: string, balance: number, checkedAt: Date) { this.paid++; this.session.status = "PAID_VERIFIED"; this.session.qbInvoiceBalance = balance; this.session.lastStatusCheckedAt = checkedAt; this.session.paymentVerifiedAt = checkedAt; this.session.accountCreationAllowed = true; }
   async recordVerificationFailure() { this.failed++; }
-  async findLatestInvoiceStatusEmailSentAt() { return this.latestEmailSentAt; }
-  async recordInvoiceStatusEmail() { this.emails++; }
+  async findLatestInvoiceResendAt() { return this.latestInvoiceResendAt; }
+  async recordInvoiceResend(input: Parameters<PaymentRepository["recordInvoiceResend"]>[0]) {
+    this.invoiceResends++;
+    this.latestInvoiceResendAt = input.sentAt;
+  }
   async findLatestPaymentSupportRequestAt() { return this.latestSupportAt; }
   async recordPaymentSupportRequest() { this.supportRequests++; }
 }
@@ -34,8 +43,12 @@ class Repo implements PaymentRepository {
 class Qbo implements InvoiceStatusGateway {
   invoice: QuickBooksInvoiceStatus = { id: "invoice-1", number: "1001", balance: 2997, totalAmount: 2997, currency: "USD" };
   sends = 0;
+  sendRequestIds: string[] = [];
   async getInvoice() { return this.invoice; }
-  async sendInvoice() { this.sends++; }
+  async sendInvoice(_invoiceId: string, _email: string, requestId: string) {
+    this.sends++;
+    this.sendRequestIds.push(requestId);
+  }
 }
 
 const token = "a".repeat(43);
@@ -43,7 +56,13 @@ const build = () => {
   const repo = new Repo();
   const qbo = new Qbo();
   let supportNotices = 0;
-  const service = new PaymentStatusService(repo, qbo, { send: async () => undefined, sendPaymentSupport: async () => { supportNotices++; } }, "https://assessments.savians.com", () => new Date("2026-07-05T12:00:00Z"));
+  const service = new PaymentStatusService(
+    repo,
+    qbo,
+    { sendPaymentSupport: async () => { supportNotices++; } },
+    "https://assessments.savians.com",
+    () => new Date("2026-07-05T12:00:00Z")
+  );
   return { repo, qbo, service, supportNotices: () => supportNotices };
 };
 
@@ -77,7 +96,7 @@ describe("PaymentStatusService", () => {
 
   it("rate-limits invoice email resend", async () => {
     const { repo, qbo, service } = build();
-    repo.latestEmailSentAt = new Date("2026-07-05T11:59:30Z");
+    repo.latestInvoiceResendAt = new Date("2026-07-05T11:59:30Z");
     await expect(service.resendInvoiceEmail(token)).rejects.toMatchObject({
       code: "RESEND_RATE_LIMITED",
       retryAfterSeconds: 30
@@ -87,13 +106,51 @@ describe("PaymentStatusService", () => {
 
   it("exposes resend availability and starts a new cooldown after a successful resend", async () => {
     const { repo, qbo, service } = build();
-    repo.latestEmailSentAt = new Date("2026-07-05T11:59:30Z");
+    repo.latestInvoiceResendAt = new Date("2026-07-05T11:59:30Z");
     await expect(service.load(token)).resolves.toMatchObject({
+      invoiceResendAllowed: true,
       invoiceEmailResendAvailableAt: "2026-07-05T12:00:30.000Z"
     });
-    repo.latestEmailSentAt = null;
+    repo.latestInvoiceResendAt = null;
     await expect(service.resendInvoiceEmail(token)).resolves.toEqual({ ok: true, retryAfterSeconds: 60 });
     expect(qbo.sends).toBe(1);
+    expect(qbo.sendRequestIds[0]).toHaveLength(50);
+    expect(repo.invoiceResends).toBe(1);
+    await expect(service.resendInvoiceEmail(token)).rejects.toMatchObject({
+      code: "RESEND_RATE_LIMITED",
+      retryAfterSeconds: 60
+    });
+  });
+
+  it("allows QuickBooks resend when the optional invoice number is absent", async () => {
+    const { repo, qbo, service } = build();
+    repo.session.qbInvoiceNumber = null;
+
+    await expect(service.load(token)).resolves.toMatchObject({
+      invoiceNumber: undefined,
+      invoiceResendAllowed: true
+    });
+    await expect(service.resendInvoiceEmail(token)).resolves.toEqual({
+      ok: true,
+      retryAfterSeconds: 60
+    });
+    expect(qbo.sends).toBe(1);
+    expect(repo.invoiceResends).toBe(1);
+  });
+
+  it("does not offer or send invoice email after payment is verified", async () => {
+    const { repo, qbo, service } = build();
+    repo.session.status = "PAID_VERIFIED";
+    repo.session.accountCreationAllowed = true;
+
+    await expect(service.load(token)).resolves.toMatchObject({
+      invoiceResendAllowed: false
+    });
+    await expect(service.resendInvoiceEmail(token)).rejects.toMatchObject({
+      code: "INVOICE_NOT_SENDABLE",
+      statusCode: 409
+    });
+    expect(qbo.sends).toBe(0);
   });
 
   it("notifies Savians about an open payment without unlocking access", async () => {

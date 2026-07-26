@@ -33,8 +33,8 @@ export interface AdminDocument extends AssessmentDocument {
   session: { id: string; firstName: string; middleName: string | null; lastName: string; normalizedEmail: string; assessmentYear: number };
 }
 export interface AdminClientDetail {
-  id: string; clientId: string | null; normalizedEmail: string; phone: string; firstName: string; middleName: string | null; lastName: string; dateOfBirth: string;
-  clientType: "INDIVIDUAL" | "BUSINESS_OWNER" | "REAL_ESTATE_INVESTOR" | "W2_HIGH_EARNER" | "OTHER"; businessName: string | null; state: string; incomeRange: string | null; estimatedTaxPaidRange: string | null;
+  id: string; clientId: string | null; normalizedEmail: string; phone: string; firstName: string; middleName: string | null; lastName: string; dateOfBirth: string | null;
+  clientType: "INDIVIDUAL" | "BUSINESS_OWNER" | "REAL_ESTATE_INVESTOR" | "W2_HIGH_EARNER" | "OTHER" | null; businessName: string | null; state: string | null; incomeRange: string | null; estimatedTaxPaidRange: string | null;
   assessmentYear: number; status: string; statusLabel: string; serviceAmount: string; currency: string; qbCustomerId: string | null; qbInvoiceId: string | null; qbInvoiceNumber: string | null;
   qbInvoiceBalance: string | null; paymentVerifiedAt: string | null; agreementSignedAt: string | null; createdAt: string; updatedAt: string;
   client: { id: string; cognitoUserId: string | null; normalizedEmail: string; emailVerifiedAt: string | null } | null;

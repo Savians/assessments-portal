@@ -133,7 +133,10 @@ export class AwsCognitoAccountGateway implements CognitoAccountGateway {
     return { userSub, emailVerified };
   }
 
-  async setPermanentPassword(input: { email: string; password: string }): Promise<void> {
+  async setPermanentPassword(input: {
+    email: string;
+    password: string;
+  }): Promise<{ userSub: string; emailVerified: boolean }> {
     await this.client.send(
       new AdminSetUserPasswordCommand({
         UserPoolId: this.config.COGNITO_USER_POOL_ID,
@@ -149,6 +152,18 @@ export class AwsCognitoAccountGateway implements CognitoAccountGateway {
         UserAttributes: [{ Name: "email_verified", Value: "true" }]
       })
     );
+    const user = await this.client.send(
+      new AdminGetUserCommand({
+        UserPoolId: this.config.COGNITO_USER_POOL_ID,
+        Username: input.email
+      })
+    );
+    const userSub = user.UserAttributes?.find((attribute) => attribute.Name === "sub")?.Value;
+    const emailVerified =
+      user.UserAttributes?.find((attribute) => attribute.Name === "email_verified")?.Value ===
+      "true";
+    if (!userSub) throw new Error("Cognito recovered user is missing sub");
+    if (!emailVerified) throw new Error("Cognito recovered user email is not verified");
     await this.client.send(
       new AdminAddUserToGroupCommand({
         UserPoolId: this.config.COGNITO_USER_POOL_ID,
@@ -156,5 +171,6 @@ export class AwsCognitoAccountGateway implements CognitoAccountGateway {
         GroupName: "ASSESSMENT_CLIENT"
       })
     );
+    return { userSub, emailVerified };
   }
 }

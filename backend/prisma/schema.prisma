@@ -137,10 +137,10 @@ model AssessmentSession {
   firstName                String           @map("first_name") @db.VarChar(60)
   middleName               String?          @map("middle_name") @db.VarChar(60)
   lastName                 String           @map("last_name") @db.VarChar(60)
-  dateOfBirth              DateTime         @map("date_of_birth") @db.Date
-  clientType               ClientType       @map("client_type")
+  dateOfBirth              DateTime?        @map("date_of_birth") @db.Date
+  clientType               ClientType?      @map("client_type")
   businessName             String?          @map("business_name") @db.VarChar(255)
-  state                    String           @db.VarChar(2)
+  state                    String?          @db.VarChar(2)
   incomeRange              String?          @map("income_range") @db.VarChar(50)
   estimatedTaxPaidRange    String?          @map("estimated_tax_paid_range") @db.VarChar(50)
   consentAcceptedAt        DateTime         @map("consent_accepted_at")

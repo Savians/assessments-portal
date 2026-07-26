@@ -4,7 +4,7 @@ import { getApplicationSecrets, persistQuickBooksRefreshToken } from "../../shar
 import { log } from "../../shared/logger";
 import { getPrismaClient } from "../../shared/prisma-client";
 import { IntuitQuickBooksGateway } from "../agreement/quickbooks-client";
-import { ResendInvoiceStatusNotifier } from "../agreement/resend-invoice-status-notifier";
+import { ResendPaymentSupportNotifier } from "../agreement/resend-payment-support-notifier";
 import { PaymentStatusService } from "../payment/payment-service";
 import { PrismaPaymentRepository } from "../payment/prisma-payment-repository";
 import { QuickBooksWebhookError, QuickBooksWebhookProcessor, verifyQuickBooksSignature } from "./quickbooks-webhook";
@@ -26,7 +26,12 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
     const prisma = getPrismaClient(secrets.DATABASE_URL);
     const repository = new PrismaPaymentRepository(prisma);
     const quickBooks = new IntuitQuickBooksGateway(secrets, persistQuickBooksRefreshToken);
-    const paymentStatus = new PaymentStatusService(repository, quickBooks, new ResendInvoiceStatusNotifier(secrets), process.env.FRONTEND_URL ?? "http://localhost:3000");
+    const paymentStatus = new PaymentStatusService(
+      repository,
+      quickBooks,
+      new ResendPaymentSupportNotifier(secrets),
+      process.env.FRONTEND_URL ?? "http://localhost:3000"
+    );
     const processor = new QuickBooksWebhookProcessor(prisma, paymentStatus);
     return json(200, await processor.process(body));
   } catch (error) {

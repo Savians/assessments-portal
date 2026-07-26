@@ -46,12 +46,10 @@ export interface PaymentRepository {
   recordStillOpen(sessionId: string, balance: number, checkedAt: Date): Promise<void>;
   recordPaidVerified(sessionId: string, balance: number, checkedAt: Date): Promise<void>;
   recordVerificationFailure(sessionId: string, message: string, checkedAt: Date): Promise<void>;
-  findLatestInvoiceStatusEmailSentAt(sessionId: string): Promise<Date | null>;
-  recordInvoiceStatusEmail(input: {
+  findLatestInvoiceResendAt(sessionId: string): Promise<Date | null>;
+  recordInvoiceResend(input: {
     sessionId: string;
     recipientEmail: string;
-    status: "SENT" | "FAILED" | "SKIPPED";
-    failureReason?: string;
     sentAt: Date;
   }): Promise<void>;
   findLatestPaymentSupportRequestAt(sessionId: string): Promise<Date | null>;
@@ -69,8 +67,7 @@ export interface InvoiceStatusGateway {
   sendInvoice(invoiceId: string, email: string, requestId: string): Promise<void>;
 }
 
-export interface PaymentNotifier {
-  send(input: { sessionId: string; email: string; firstName: string; invoiceNumber?: string; amount: number; statusUrl: string }): Promise<void>;
+export interface PaymentSupportNotifier {
   sendPaymentSupport(input: { sessionId: string; email: string; firstName: string; phone: string; assessmentYear: number; invoiceNumber?: string; balance?: number | null; amount: number; statusUrl: string }): Promise<void>;
 }
 
@@ -85,12 +82,20 @@ const requestId = (kind: string, sessionId: string) => createHash("sha256").upda
 const moneyEquals = (left: number | undefined, right: number) => Math.round((left ?? Number.NaN) * 100) === Math.round(right * 100);
 export const INVOICE_RESEND_COOLDOWN_SECONDS = 60;
 export const PAYMENT_SUPPORT_COOLDOWN_SECONDS = 600;
+const invoiceResendStatuses = new Set<PaymentSessionStatus>(["PAYMENT_PENDING", "PAYMENT_VERIFYING"]);
+const invoiceResendAllowed = (session: PaymentSession) =>
+  Boolean(session.qbInvoiceId && invoiceResendStatuses.has(session.status));
+const invoiceResendRequestId = (sessionId: string, at: Date) =>
+  requestId(
+    "manual-send-invoice",
+    `${sessionId}:${Math.floor(at.getTime() / (INVOICE_RESEND_COOLDOWN_SECONDS * 1000))}`
+  );
 
 export class PaymentStatusService {
   constructor(
     private readonly repository: PaymentRepository,
     private readonly quickBooks: InvoiceStatusGateway,
-    private readonly notifier: PaymentNotifier,
+    private readonly notifier: PaymentSupportNotifier,
     private readonly frontendUrl: string,
     private readonly now: () => Date = () => new Date()
   ) {}
@@ -110,7 +115,7 @@ export class PaymentStatusService {
   async resendInvoiceEmail(token: string) {
     const session = await this.resolveToken(token);
     if (!session.qbInvoiceId) throw new PaymentFlowError("INVOICE_NOT_READY", "The QuickBooks invoice is not ready yet.", 409);
-    if (!["PAYMENT_PENDING", "PAYMENT_VERIFYING", "PAID_VERIFIED"].includes(session.status)) {
+    if (!invoiceResendAllowed(session)) {
       throw new PaymentFlowError("INVOICE_NOT_SENDABLE", "This assessment is not ready for invoice resend.", 409);
     }
     const availableAt = await this.resendAvailableAt(session.id);
@@ -118,23 +123,17 @@ export class PaymentStatusService {
       const retryAfterSeconds = Math.max(1, Math.ceil((new Date(availableAt).getTime() - this.now().getTime()) / 1000));
       throw new PaymentFlowError("RESEND_RATE_LIMITED", `Please wait ${retryAfterSeconds} seconds before resending the invoice email.`, 429, retryAfterSeconds);
     }
-    await this.quickBooks.sendInvoice(session.qbInvoiceId, session.normalizedEmail, requestId("manual-send-invoice", session.id));
-    const statusUrl = `${this.frontendUrl.replace(/\/$/, "")}/assessment/status/${token}`;
-    try {
-      await this.notifier.send({
-        sessionId: session.id,
-        email: session.normalizedEmail,
-        firstName: session.firstName,
-        invoiceNumber: session.qbInvoiceNumber ?? undefined,
-        amount: session.serviceAmount,
-        statusUrl
-      });
-      await this.repository.recordInvoiceStatusEmail({ sessionId: session.id, recipientEmail: session.normalizedEmail, status: "SENT", sentAt: this.now() });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown notification error";
-      await this.repository.recordInvoiceStatusEmail({ sessionId: session.id, recipientEmail: session.normalizedEmail, status: "FAILED", failureReason: message, sentAt: this.now() });
-      throw new PaymentFlowError("RESEND_EMAIL_FAILED", "QuickBooks was asked to resend the invoice, but the Savians status email failed.", 502);
-    }
+    const sentAt = this.now();
+    await this.quickBooks.sendInvoice(
+      session.qbInvoiceId,
+      session.normalizedEmail,
+      invoiceResendRequestId(session.id, sentAt)
+    );
+    await this.repository.recordInvoiceResend({
+      sessionId: session.id,
+      recipientEmail: session.normalizedEmail,
+      sentAt
+    });
     return { ok: true, retryAfterSeconds: INVOICE_RESEND_COOLDOWN_SECONDS };
   }
 
@@ -218,7 +217,7 @@ export class PaymentStatusService {
   }
 
   private async resendAvailableAt(sessionId: string): Promise<string | undefined> {
-    const latest = await this.repository.findLatestInvoiceStatusEmailSentAt(sessionId);
+    const latest = await this.repository.findLatestInvoiceResendAt(sessionId);
     if (!latest) return undefined;
     const availableAt = new Date(latest.getTime() + INVOICE_RESEND_COOLDOWN_SECONDS * 1000);
     return availableAt.getTime() > this.now().getTime() ? availableAt.toISOString() : undefined;
@@ -234,6 +233,7 @@ export class PaymentStatusService {
       lastStatusCheckedAt: session.lastStatusCheckedAt?.toISOString(),
       paymentVerifiedAt: session.paymentVerifiedAt?.toISOString(),
       accountCreationAllowed: session.accountCreationAllowed,
+      invoiceResendAllowed: invoiceResendAllowed(session),
       invoiceEmailResendAvailableAt,
       nextUrl: session.status === "PAID_VERIFIED" || session.status === "ACCOUNT_INVITED" ? "/assessment/recover?stage=account" : `/assessment/status/${token}`
     };

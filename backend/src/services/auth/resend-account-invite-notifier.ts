@@ -12,7 +12,9 @@ export class ResendAccountInviteNotifier implements AccountInviteNotifier {
   }
 
   async send(input: { email: string; firstName: string; setupUrl: string; assessmentYear: number }): Promise<void> {
-    if (!this.secrets.EMAIL_ENABLED || !this.secrets.RESEND_API_KEY) return;
+    if (!this.secrets.EMAIL_ENABLED || !this.secrets.RESEND_API_KEY) {
+      throw new Error("Resend account invite email is not configured");
+    }
     const resend = new Resend(this.secrets.RESEND_API_KEY);
     const result = await resend.emails.send({
       from: this.from,
@@ -26,7 +28,9 @@ export class ResendAccountInviteNotifier implements AccountInviteNotifier {
   }
 
   async sendVerificationCode(input: { email: string; firstName: string; code: string; assessmentYear: number }): Promise<void> {
-    if (!this.secrets.EMAIL_ENABLED || !this.secrets.RESEND_API_KEY) return;
+    if (!this.secrets.EMAIL_ENABLED || !this.secrets.RESEND_API_KEY) {
+      throw new Error("Resend account verification email is not configured");
+    }
     const resend = new Resend(this.secrets.RESEND_API_KEY);
     const result = await resend.emails.send({
       from: this.from,

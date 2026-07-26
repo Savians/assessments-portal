@@ -16,8 +16,8 @@ Last updated: 2026-07-16
 - Reset-code resend has a 60-second backend-enforced cooldown plus a matching UI countdown.
 - A valid code is atomically consumed before the auth Lambda changes the permanent Cognito password, preventing replay.
 - Password policy is validated by the backend before Cognito receives the new password.
-- Recovery is limited to verified assessment clients linked to Cognito. The shared referral-portal recovery flow is not changed.
-- A first-time client who has not completed payment and account setup has no verified assessment account, so the backend does not create or email a reset code.
+- Recovery is limited to assessment sessions with server-verified payment and an existing Cognito account. This includes a paid repeat client whose reusable account has not yet been linked to the new assessment session. The shared referral-portal recovery flow is not changed.
+- A first-time client who has not completed payment or does not yet have a Cognito account receives the enumeration-safe response, but the backend does not create or email a reset code.
 - Repeat clients retain one reusable account across assessment years. If a repeat client has an unpaid new-year assessment but already has a verified Savians account from an earlier year, password recovery remains available for that existing account.
 - The frontend explains the payment/account prerequisite and links to assessment recovery, while the API deliberately keeps the same response for known and unknown emails to prevent account enumeration.
 
@@ -43,7 +43,7 @@ Last updated: 2026-07-16
 
 - `POST /api/assessment/account/verification/resend`: public, invite-token protected, rate-limited setup-code resend.
 - `POST /api/assessment/account/password-reset/request`: public, enumeration-resistant, rate-limited Resend reset-code request.
-- `POST /api/assessment/account/password-reset/confirm`: public, consumes a valid reset code and changes the Cognito password.
+- `POST /api/assessment/account/password-reset/confirm`: public, consumes a valid reset code, changes the Cognito password, and transactionally links the verified paid assessment to that Cognito user.
 - `POST /api/assessment/account/existing/claim`: Cognito JWT protected, links a paid annual assessment to an existing verified account.
 
 Existing setup endpoints remain in place:
@@ -55,7 +55,7 @@ Existing setup endpoints remain in place:
 ## Data and infrastructure impact
 
 - No database migration or schema change is required.
-- Existing `assessment_recovery_tokens`, `assessment_account_invites`, client, session, status-history, and audit tables are reused.
+- Existing `assessment_recovery_tokens`, `assessment_account_invites`, client, session, status-history, and audit tables are reused. A verified paid login can also repair a legacy `ACCOUNT_INVITED` session that was left unlinked by the older reset flow.
 - Password-reset records use verification type `PASSWORD_RESET_EMAIL`.
 - The Cognito app client remains secretless and uses SRP/refresh-token authentication.
 - The auth Lambda retains the existing least-privilege Cognito administrative permissions.

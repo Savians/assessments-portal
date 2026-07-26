@@ -9,10 +9,16 @@ export interface PortalEntitlement {
 const maritalStatuses = ["SINGLE", "MARRIED", "DIVORCED", "WIDOWED"] as const;
 const residentStatuses = ["US_CITIZEN", "GREEN_CARD_HOLDER", "VISA", "OTHER"] as const;
 const preferredContactMethods = ["EMAIL", "PHONE", "EITHER"] as const;
+const clientTypes = ["INDIVIDUAL", "BUSINESS_OWNER", "REAL_ESTATE_INVESTOR", "W2_HIGH_EARNER", "OTHER"] as const;
+const incomeRanges = ["$150K-$250K", "$250K-$500K", "$500K-$1M", "$1M+"] as const;
+const taxPaidRanges = ["UNDER_$25K", "$25K-$50K", "$50K-$100K", "$100K+"] as const;
 
 export type MaritalStatusValue = (typeof maritalStatuses)[number];
 export type ResidentStatusValue = (typeof residentStatuses)[number];
 export type PreferredContactValue = (typeof preferredContactMethods)[number];
+export type ClientTypeValue = (typeof clientTypes)[number];
+export type IncomeRangeValue = (typeof incomeRanges)[number];
+export type TaxPaidRangeValue = (typeof taxPaidRanges)[number];
 
 export class PortalProfileError extends Error {
   constructor(readonly code: string, message: string, readonly statusCode: number) {
@@ -51,9 +57,22 @@ const householdMemberSchema = z.object({
 });
 
 const nullableMoney = z.number().optional().nullable();
+const optionalIncomeRange = z.preprocess(
+  (value) => value === "" ? undefined : value,
+  z.enum(incomeRanges).optional()
+);
+const optionalTaxPaidRange = z.preprocess(
+  (value) => value === "" ? undefined : value,
+  z.enum(taxPaidRanges).optional()
+);
 
 export const savePortalProfileSchema = z
   .object({
+    primaryDateOfBirth: dateOnly,
+    clientType: z.enum(clientTypes, { error: "Client type is required." }),
+    businessName: optionalText(255),
+    incomeRange: optionalIncomeRange,
+    estimatedTaxPaidRange: optionalTaxPaidRange,
     householdName: optionalText(200),
     homeAddress: requiredText(255, "Home address"),
     city: requiredText(100, "City"),
@@ -91,6 +110,16 @@ export const savePortalProfileSchema = z
         message: "Spouse details should only be provided when marital status is married."
       });
     }
+    if (
+      (value.clientType === "BUSINESS_OWNER" || value.clientType === "OTHER") &&
+      !value.businessName
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["businessName"],
+        message: "Business name is required for this client type."
+      });
+    }
   });
 
 export type SavePortalProfileInput = z.infer<typeof savePortalProfileSchema>;
@@ -103,8 +132,12 @@ export interface PortalSessionSeed {
   firstName: string;
   middleName: string | null;
   lastName: string;
-  dateOfBirth: Date;
-  state: string;
+  dateOfBirth: Date | null;
+  clientType: ClientTypeValue | null;
+  businessName: string | null;
+  state: string | null;
+  incomeRange: string | null;
+  estimatedTaxPaidRange: string | null;
   assessmentYear: number;
 }
 
@@ -156,7 +189,7 @@ const emptyProfile = (session: PortalSessionSeed): PortalProfilePayload => ({
   householdName: "",
   homeAddress: "",
   city: "",
-  state: session.state,
+  state: session.state ?? "",
   zip: "",
   homeowner: null,
   maritalStatus: "",
@@ -214,6 +247,10 @@ export interface PortalProfileResponse {
     middleName: string;
     lastName: string;
     dateOfBirth: string;
+    clientType: ClientTypeValue | "";
+    businessName: string;
+    incomeRange: IncomeRangeValue | "";
+    estimatedTaxPaidRange: TaxPaidRangeValue | "";
     email: string;
     phone: string;
   };
@@ -284,7 +321,15 @@ export class PortalProfileService {
     }
     const input = savePortalProfileSchema.parse(rawInput);
     const profile = await this.repository.saveCompleteProfile(entitlement, input);
-    return this.buildResponse(entitlement, session, profile);
+    return this.buildResponse(entitlement, {
+      ...session,
+      dateOfBirth: new Date(`${input.primaryDateOfBirth}T00:00:00.000Z`),
+      clientType: input.clientType,
+      businessName: input.businessName ?? null,
+      state: input.state,
+      incomeRange: input.incomeRange ?? null,
+      estimatedTaxPaidRange: input.estimatedTaxPaidRange ?? null
+    }, profile);
   }
 
   private buildResponse(entitlement: PortalEntitlement, session: PortalSessionSeed, profile: StoredClientProfile | null): PortalProfileResponse {
@@ -300,7 +345,11 @@ export class PortalProfileService {
         firstName: session.firstName,
         middleName: session.middleName ?? "",
         lastName: session.lastName,
-        dateOfBirth: toDateOnly(session.dateOfBirth),
+        dateOfBirth: session.dateOfBirth ? toDateOnly(session.dateOfBirth) : "",
+        clientType: session.clientType ?? "",
+        businessName: session.businessName ?? "",
+        incomeRange: (session.incomeRange as IncomeRangeValue | null) ?? "",
+        estimatedTaxPaidRange: (session.estimatedTaxPaidRange as TaxPaidRangeValue | null) ?? "",
         email: session.normalizedEmail,
         phone: session.phone
       },

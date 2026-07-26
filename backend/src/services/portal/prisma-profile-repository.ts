@@ -85,7 +85,11 @@ export class PrismaPortalProfileRepository implements PortalProfileRepository {
         middleName: true,
         lastName: true,
         dateOfBirth: true,
+        clientType: true,
+        businessName: true,
         state: true,
+        incomeRange: true,
+        estimatedTaxPaidRange: true,
         assessmentYear: true
       }
     });
@@ -196,11 +200,23 @@ export class PrismaPortalProfileRepository implements PortalProfileRepository {
 
       if (members.length > 0) await tx.householdMember.createMany({ data: members });
 
-      if (profileCompletableStatuses.includes(currentSession.status)) {
-        await tx.assessmentSession.update({
-          where: { id: entitlement.sessionId },
-          data: { status: AssessmentStatus.PROFILE_COMPLETED, documentUploadAllowed: true }
-        });
+      const completesProfile = profileCompletableStatuses.includes(currentSession.status);
+      await tx.assessmentSession.update({
+        where: { id: entitlement.sessionId },
+        data: {
+          dateOfBirth: dateFromDateOnly(input.primaryDateOfBirth),
+          clientType: input.clientType,
+          businessName: input.businessName ?? null,
+          state: input.state,
+          incomeRange: input.incomeRange ?? null,
+          estimatedTaxPaidRange: input.estimatedTaxPaidRange ?? null,
+          ...(completesProfile
+            ? { status: AssessmentStatus.PROFILE_COMPLETED, documentUploadAllowed: true }
+            : {})
+        }
+      });
+
+      if (completesProfile) {
         if (currentSession.status !== AssessmentStatus.PROFILE_COMPLETED) {
           await tx.assessmentStatusHistory.create({
             data: {

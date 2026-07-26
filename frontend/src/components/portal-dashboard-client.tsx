@@ -12,6 +12,8 @@ import {
   savePortalBusinessInvestments,
   savePortalProfile,
   savePortalProperties,
+  type ClientType,
+  type IncomeRange,
   type MaritalStatus,
   type PortalBusinessInvestment,
   type PortalDashboardResponse,
@@ -20,11 +22,13 @@ import {
   type PortalProperty,
   type PreferredContact,
   type ResidentStatus,
-  type SavePortalProfileRequest
+  type SavePortalProfileRequest,
+  type TaxPaidRange
 } from "@/services/assessment-api";
 import { clearStoredPortalAccessToken, getCurrentPortalAccessToken, getPortalIdentity, signOutFromPortal } from "@/services/portal-auth";
 import { Button, Card, ErrorAlert, Input, LoadingOverlay, Select, StatusBadge, cn } from "@/components/ui";
 import { PortalDocumentsClient } from "@/components/portal-documents-client";
+import { clientTypeOptions, incomeRangeOptions, taxPaidRangeOptions } from "@/lib/assessment-context";
 
 type DashboardTab = "personal" | "realEstate" | "business" | "documents";
 
@@ -49,6 +53,13 @@ const maritalStatusLabels: Record<MaritalStatus, string> = {
 };
 
 interface ProfileDraft {
+  assessmentContext: {
+    primaryDateOfBirth: string;
+    clientType: ClientType | "";
+    businessName: string;
+    incomeRange: IncomeRange | "";
+    estimatedTaxPaidRange: TaxPaidRange | "";
+  };
   profile: PortalProfilePayload;
   spouse: PortalHouseholdMember;
   dependents: PortalHouseholdMember[];
@@ -67,6 +78,13 @@ const emptyMember = (): PortalHouseholdMember => ({
 });
 
 const emptyProfileDraft = (): ProfileDraft => ({
+  assessmentContext: {
+    primaryDateOfBirth: "",
+    clientType: "",
+    businessName: "",
+    incomeRange: "",
+    estimatedTaxPaidRange: ""
+  },
   profile: {
     homeAddress: "",
     city: "",
@@ -133,6 +151,13 @@ const emptyBusiness = (): PortalBusinessInvestment => ({
 
 function draftFromDashboard(response: PortalDashboardResponse): ProfileDraft {
   return {
+    assessmentContext: {
+      primaryDateOfBirth: response.primaryTaxpayer.dateOfBirth,
+      clientType: response.primaryTaxpayer.clientType,
+      businessName: response.primaryTaxpayer.businessName,
+      incomeRange: response.primaryTaxpayer.incomeRange,
+      estimatedTaxPaidRange: response.primaryTaxpayer.estimatedTaxPaidRange
+    },
     profile: response.profile,
     spouse: response.spouse ?? emptyMember(),
     dependents: response.dependents
@@ -177,6 +202,11 @@ function memberForSave(member: PortalHouseholdMember): Omit<PortalHouseholdMembe
 
 function buildSaveRequest(draft: ProfileDraft): SavePortalProfileRequest {
   return {
+    primaryDateOfBirth: draft.assessmentContext.primaryDateOfBirth,
+    clientType: draft.assessmentContext.clientType,
+    businessName: draft.assessmentContext.businessName,
+    incomeRange: draft.assessmentContext.incomeRange,
+    estimatedTaxPaidRange: draft.assessmentContext.estimatedTaxPaidRange,
     homeAddress: draft.profile.homeAddress,
     city: draft.profile.city,
     state: draft.profile.state,
@@ -284,6 +314,9 @@ export function PortalDashboardClient() {
   const assessmentYear = dashboard?.assessmentYear ?? new Date().getFullYear();
   const incomeHistoryYears = [assessmentYear - 3, assessmentYear - 2, assessmentYear - 1];
   const isMarried = profileDraft.profile.maritalStatus === "MARRIED";
+  const showBusinessName =
+    profileDraft.assessmentContext.clientType === "BUSINESS_OWNER" ||
+    profileDraft.assessmentContext.clientType === "OTHER";
   const canMarkReady = !["Ready for Review", "In Progress", "Completed"].includes(dashboard?.assessmentStatus.label ?? "");
   const selectedProperty = selectedPropertyIndex === null ? null : properties[selectedPropertyIndex] ?? null;
   const selectedBusiness = selectedBusinessIndex === null ? null : businessInvestments[selectedBusinessIndex] ?? null;
@@ -415,6 +448,11 @@ export function PortalDashboardClient() {
   }
 
   const updateProfile = (next: Partial<PortalProfilePayload>) => setProfileDraft((current) => ({ ...current, profile: { ...current.profile, ...next } }));
+  const updateAssessmentContext = (next: Partial<ProfileDraft["assessmentContext"]>) =>
+    setProfileDraft((current) => ({
+      ...current,
+      assessmentContext: { ...current.assessmentContext, ...next }
+    }));
   const updateProperty = (index: number, next: Partial<PortalProperty>) =>
     setProperties((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...next } : item));
   const updateBusiness = (index: number, next: Partial<PortalBusinessInvestment>) =>
@@ -558,9 +596,24 @@ export function PortalDashboardClient() {
                 </div>
                 <div className="mt-6 grid gap-4 md:grid-cols-2">
                   <Input label="Full Name" value={clientName} disabled className="bg-slate-50" />
-                  <Input label="Date Of Birth" type="date" value={dashboard.primaryTaxpayer.dateOfBirth} disabled className="bg-slate-50" />
+                  <Input label="Date Of Birth" type="date" value={profileDraft.assessmentContext.primaryDateOfBirth} onChange={(event) => updateAssessmentContext({ primaryDateOfBirth: event.target.value })} required />
                   <Input label="Email" type="email" value={dashboard.primaryTaxpayer.email} disabled className="bg-slate-50" />
                   <Input label="Phone" value={dashboard.primaryTaxpayer.phone} disabled className="bg-slate-50" />
+                  <Select label="Client Type" value={profileDraft.assessmentContext.clientType} onChange={(event) => updateAssessmentContext({ clientType: event.target.value as ClientType | "" })} required>
+                    <option value="">Select</option>
+                    {clientTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </Select>
+                  {showBusinessName ? (
+                    <Input label="Business Name" autoComplete="organization" value={profileDraft.assessmentContext.businessName} onChange={(event) => updateAssessmentContext({ businessName: event.target.value })} required />
+                  ) : null}
+                  <Select label="Estimated Annual Income" value={profileDraft.assessmentContext.incomeRange} onChange={(event) => updateAssessmentContext({ incomeRange: event.target.value as IncomeRange | "" })}>
+                    <option value="">Prefer not to say</option>
+                    {incomeRangeOptions.map((range) => <option key={range} value={range}>{range}</option>)}
+                  </Select>
+                  <Select label="Estimated Annual Tax Paid" value={profileDraft.assessmentContext.estimatedTaxPaidRange} onChange={(event) => updateAssessmentContext({ estimatedTaxPaidRange: event.target.value as TaxPaidRange | "" })}>
+                    <option value="">Prefer not to say</option>
+                    {taxPaidRangeOptions.map((range) => <option key={range.value} value={range.value}>{range.label}</option>)}
+                  </Select>
                   <Select label="Preferred Contact" value={profileDraft.profile.preferredContact} onChange={(event) => updateProfile({ preferredContact: event.target.value as PreferredContact | "" })} required>
                     <option value="">Select</option><option value="EMAIL">Email</option><option value="PHONE">Phone</option><option value="EITHER">Either</option>
                   </Select>

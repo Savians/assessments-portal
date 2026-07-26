@@ -2,7 +2,7 @@ import {
   AssessmentStatus as PrismaAssessmentStatus,
   DeliveryStatus
 } from "@prisma/client";
-import type { ClientType as PrismaClientType, PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import type {
   AssessmentSessionRecord,
   AssessmentSessionRepository,
@@ -54,12 +54,6 @@ export class PrismaAssessmentSessionRepository implements AssessmentSessionRepos
           firstName: input.firstName,
           middleName: input.middleName,
           lastName: input.lastName,
-          dateOfBirth: input.dateOfBirth,
-          clientType: input.clientType as PrismaClientType,
-          businessName: input.businessName,
-          state: input.state,
-          incomeRange: input.incomeRange,
-          estimatedTaxPaidRange: input.estimatedTaxPaidRange,
           consentAcceptedAt: input.consentAcceptedAt,
           assessmentYear: input.assessmentYear,
           status: PrismaAssessmentStatus.AGREEMENT_PENDING,
