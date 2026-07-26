@@ -98,19 +98,17 @@ const services: ServiceName[] = [
   "portal", "documents", "notifications", "webhook", "scheduler"
 ];
 
+const prismaQueryEngineFile = "libquery_engine-linux-arm64-openssl-3.0.x.so.node";
+
 const copyPrismaRuntimeCommand = (inputDir: string, outputDir: string): string => {
   const script =
     "const fs=require('fs');" +
     "const path=require('path');" +
-    "const pairs=[['node_modules','.prisma'],['node_modules','@prisma']];" +
-    "for(const parts of pairs){" +
-    "const src=path.join(process.argv[1],...parts);" +
-    "const dest=path.join(process.argv[2],...parts);" +
-    "if(fs.existsSync(src)){" +
-    "fs.mkdirSync(path.dirname(dest),{recursive:true});" +
-    "fs.cpSync(src,dest,{recursive:true});" +
-    "}" +
-    "}";
+    `const file=${JSON.stringify(prismaQueryEngineFile)};` +
+    "const src=path.join(process.argv[1],'node_modules','.prisma','client',file);" +
+    "const dest=path.join(process.argv[2],file);" +
+    "if(!fs.existsSync(src)){throw new Error('Missing generated Prisma Lambda engine: '+src);}" +
+    "fs.copyFileSync(src,dest);";
   return "node -e " + JSON.stringify(script) + " " + JSON.stringify(inputDir) + " " + JSON.stringify(outputDir);
 };
 
@@ -282,7 +280,8 @@ export class AssessmentStack extends Stack {
           S3_PREFIX: "assessments/",
           S3_DOCUMENTS_BUCKET: props.documentsBucketName,
           COGNITO_USER_POOL_ID: userPool.userPoolId,
-          COGNITO_CLIENT_ID: appClient.userPoolClientId
+          COGNITO_CLIENT_ID: appClient.userPoolClientId,
+          PRISMA_QUERY_ENGINE_LIBRARY: `/var/task/${prismaQueryEngineFile}`
         },
         bundling: {
           minify: props.environmentName === "production",
