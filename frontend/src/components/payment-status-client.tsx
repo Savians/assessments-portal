@@ -415,7 +415,9 @@ export function PaymentStatusClient({ token }: { token: string }) {
           <dl className="mt-5 grid gap-4 text-sm">
             <div className="flex justify-between gap-4">
               <dt className="text-slate-500">Invoice #</dt>
-              <dd className="font-semibold text-navy-800">{details?.invoiceNumber ?? "Pending"}</dd>
+              <dd className="font-semibold text-navy-800">
+                {details?.invoiceNumber ?? (paid ? "Not provided by QuickBooks" : "Pending")}
+              </dd>
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-slate-500">Invoice amount</dt>

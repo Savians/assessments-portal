@@ -80,6 +80,7 @@ describe("PaymentStatusClient", () => {
     const proceed = await screen.findByRole("button", { name: "Proceed to Account Setup" });
     expect(screen.getByRole("button", { name: "I'll do this later" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveClass("text-emerald-900");
+    expect(screen.getByText("Not provided by QuickBooks")).toBeInTheDocument();
     expect(screen.queryByText(/automatically continue/i)).not.toBeInTheDocument();
     expect(api.startPaidAccountSetup).not.toHaveBeenCalled();
 
