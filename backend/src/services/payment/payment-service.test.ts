@@ -62,8 +62,13 @@ class Repo implements PaymentRepository {
     }
     return [];
   }
-  async recordStillOpen(_sessionId: string, balance: number, checkedAt: Date) { this.stillOpen++; this.session.qbInvoiceBalance = balance; this.session.lastStatusCheckedAt = checkedAt; }
-  async recordPaidVerified(_sessionId: string, balance: number, checkedAt: Date) {
+  async recordStillOpen(_sessionId: string, balance: number, checkedAt: Date, invoiceNumber?: string) {
+    this.stillOpen++;
+    this.session.qbInvoiceBalance = balance;
+    this.session.lastStatusCheckedAt = checkedAt;
+    if (invoiceNumber) this.session.qbInvoiceNumber = invoiceNumber;
+  }
+  async recordPaidVerified(_sessionId: string, balance: number, checkedAt: Date, invoiceNumber?: string) {
     const transitioned = [
       "INVOICE_CREATED",
       "INVOICE_SENT",
@@ -78,6 +83,7 @@ class Repo implements PaymentRepository {
     }
     this.session.qbInvoiceBalance = balance;
     this.session.lastStatusCheckedAt = checkedAt;
+    if (invoiceNumber) this.session.qbInvoiceNumber = invoiceNumber;
     return { transitioned, session: this.session };
   }
   async recordVerificationFailure() { this.failed++; }
@@ -162,24 +168,31 @@ const build = () => {
 describe("PaymentStatusService", () => {
   it("keeps access locked when the QuickBooks invoice still has a balance", async () => {
     const { repo, service } = build();
+    repo.session.qbInvoiceNumber = null;
     const result = await service.refresh(token);
     expect(result.status).toBe("PAYMENT_PENDING");
+    expect(result.invoiceNumber).toBe("1001");
     expect(result.invoiceBalance).toBe(2997);
     expect(repo.stillOpen).toBe(1);
     expect(repo.paid).toBe(0);
+    expect(repo.session.qbInvoiceNumber).toBe("1001");
     expect(repo.session.accountCreationAllowed).toBe(false);
   });
 
   it("marks paid only for the exact invoice amount, currency, and zero balance", async () => {
     const { repo, qbo, confirmation, service } = build();
+    repo.session.qbInvoiceNumber = null;
     qbo.invoice = { id: "invoice-1", number: "1001", balance: 0, totalAmount: 2997, currency: "USD" };
     const result = await service.refresh(token);
     expect(result.status).toBe("PAID_VERIFIED");
+    expect(result.invoiceNumber).toBe("1001");
     expect(result.accountCreationAllowed).toBe(true);
     expect(repo.paid).toBe(1);
+    expect(repo.session.qbInvoiceNumber).toBe("1001");
     expect(confirmation.calls).toBe(1);
     expect(confirmation.inputs[0]).toMatchObject({
       sessionId: "session-1",
+      invoiceNumber: "1001",
       continueUrl: "https://assessments.savians.com/assessment/recover?stage=account"
     });
     expect(repo.paymentConfirmationEvents).toEqual([
@@ -189,6 +202,22 @@ describe("PaymentStatusService", () => {
         failureReason: undefined
       }
     ]);
+  });
+
+  it("preserves a known invoice number when QuickBooks omits DocNumber", async () => {
+    const { repo, qbo, service } = build();
+    qbo.invoice = {
+      id: "invoice-1",
+      balance: 2997,
+      totalAmount: 2997,
+      currency: "USD"
+    };
+
+    await expect(service.refresh(token)).resolves.toMatchObject({
+      status: "PAYMENT_PENDING",
+      invoiceNumber: "1001"
+    });
+    expect(repo.session.qbInvoiceNumber).toBe("1001");
   });
 
   it("sends payment confirmation once across manual refresh, webhook, and scheduler reconciliation", async () => {

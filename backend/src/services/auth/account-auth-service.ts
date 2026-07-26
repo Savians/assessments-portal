@@ -121,13 +121,16 @@ export class AccountAuthError extends Error {
 
 export const inviteRequestSchema = z.object({ token: z.string().min(32).max(256) });
 export const inviteTokenSchema = z.object({ inviteToken: z.string().min(32).max(256) });
+const securePasswordSchema = z.string()
+  .min(12, "Password must be at least 12 characters.")
+  .max(256, "Password must be no more than 256 characters.")
+  .regex(/[a-z]/, "Password must include a lowercase letter.")
+  .regex(/[A-Z]/, "Password must include an uppercase letter.")
+  .regex(/[0-9]/, "Password must include a number.")
+  .regex(/[^A-Za-z0-9]/, "Password must include a special character.");
 export const setupSchema = z.object({
   inviteToken: z.string().min(32).max(256),
-  password: z.string().min(12).max(256)
-    .regex(/[a-z]/, "Password must include a lowercase letter")
-    .regex(/[A-Z]/, "Password must include an uppercase letter")
-    .regex(/[0-9]/, "Password must include a number")
-    .regex(/[^A-Za-z0-9]/, "Password must include a special character")
+  password: securePasswordSchema
 });
 export const confirmSchema = z.object({
   inviteToken: z.string().min(32).max(256),
@@ -138,11 +141,7 @@ export const passwordResetRequestSchema = z.object({ email: z.string().trim().em
 export const passwordResetConfirmSchema = z.object({
   email: z.string().trim().email().max(320),
   confirmationCode: z.string().trim().regex(/^\d{8}$/, "Enter the eight-digit reset code"),
-  newPassword: z.string().min(12).max(256)
-    .regex(/[a-z]/, "Password must include a lowercase letter")
-    .regex(/[A-Z]/, "Password must include an uppercase letter")
-    .regex(/[0-9]/, "Password must include a number")
-    .regex(/[^A-Za-z0-9]/, "Password must include a special character")
+  newPassword: securePasswordSchema
 });
 export const portalClaimsSchema = z.object({
   sub: z.string().min(1),

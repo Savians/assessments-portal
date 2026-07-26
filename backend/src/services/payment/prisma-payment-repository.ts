@@ -95,11 +95,20 @@ export class PrismaPaymentRepository implements PaymentRepository {
     return sessions.map(toSession);
   }
 
-  async recordStillOpen(sessionId: string, balance: number, checkedAt: Date): Promise<void> {
+  async recordStillOpen(
+    sessionId: string,
+    balance: number,
+    checkedAt: Date,
+    invoiceNumber?: string
+  ): Promise<void> {
     await this.prisma.$transaction([
       this.prisma.assessmentSession.update({
         where: { id: sessionId },
-        data: { qbInvoiceBalance: balance, lastStatusCheckedAt: checkedAt }
+        data: {
+          qbInvoiceBalance: balance,
+          lastStatusCheckedAt: checkedAt,
+          ...(invoiceNumber ? { qbInvoiceNumber: invoiceNumber } : {})
+        }
       }),
       this.prisma.paymentReconciliation.create({
         data: { sessionId, status: ReconciliationStatus.STILL_OPEN, invoiceBalance: balance, checkedAt }
@@ -113,7 +122,8 @@ export class PrismaPaymentRepository implements PaymentRepository {
   async recordPaidVerified(
     sessionId: string,
     balance: number,
-    checkedAt: Date
+    checkedAt: Date,
+    invoiceNumber?: string
   ): Promise<{ transitioned: boolean; session: PaymentSession }> {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.assessmentSession.findUniqueOrThrow({ where: { id: sessionId }, select: { status: true } });
@@ -122,7 +132,14 @@ export class PrismaPaymentRepository implements PaymentRepository {
           id: sessionId,
           status: { in: paymentPendingStatuses }
         },
-        data: { status: AssessmentStatus.PAID_VERIFIED, qbInvoiceBalance: balance, lastStatusCheckedAt: checkedAt, paymentVerifiedAt: checkedAt, accountCreationAllowed: true }
+        data: {
+          status: AssessmentStatus.PAID_VERIFIED,
+          qbInvoiceBalance: balance,
+          lastStatusCheckedAt: checkedAt,
+          paymentVerifiedAt: checkedAt,
+          accountCreationAllowed: true,
+          ...(invoiceNumber ? { qbInvoiceNumber: invoiceNumber } : {})
+        }
       });
       const transitioned = transition.count === 1;
       if (!transitioned) {
@@ -131,7 +148,11 @@ export class PrismaPaymentRepository implements PaymentRepository {
         // moving a later journey status backward to PAID_VERIFIED.
         await tx.assessmentSession.update({
           where: { id: sessionId },
-          data: { qbInvoiceBalance: balance, lastStatusCheckedAt: checkedAt }
+          data: {
+            qbInvoiceBalance: balance,
+            lastStatusCheckedAt: checkedAt,
+            ...(invoiceNumber ? { qbInvoiceNumber: invoiceNumber } : {})
+          }
         });
       }
       await tx.paymentReconciliation.create({

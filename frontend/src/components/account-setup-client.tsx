@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
-import { CheckCircle2, KeyRound, LogIn, MailCheck, RotateCcw } from "lucide-react";
+import { FormEvent, useEffect, useId, useState } from "react";
+import { CheckCircle2, Eye, EyeOff, KeyRound, LogIn, MailCheck, RotateCcw } from "lucide-react";
 import {
   AssessmentApiError,
   claimExistingAccount,
@@ -13,13 +13,83 @@ import {
   type AccountInviteDetails
 } from "@/services/assessment-api";
 import { signInToPortal } from "@/services/portal-auth";
-import { Button, Card, ErrorAlert, Input, LoadingOverlay, StatusBadge, Stepper } from "@/components/ui";
+import { Button, Card, cn, ErrorAlert, Input, LoadingOverlay, StatusBadge, Stepper } from "@/components/ui";
 import { ONBOARDING_STEPS } from "@/lib/assessment-flow";
 type SetupPhase = "PASSWORD" | "CONFIRM" | "EXISTING" | "DONE";
+
+const passwordIssue = (value: string): string | null => {
+  if (value.length < 12) return "Password must be at least 12 characters.";
+  if (value.length > 256) return "Password must be no more than 256 characters.";
+  if (!/[a-z]/.test(value)) return "Password must include a lowercase letter.";
+  if (!/[A-Z]/.test(value)) return "Password must include an uppercase letter.";
+  if (!/[0-9]/.test(value)) return "Password must include a number.";
+  if (!/[^A-Za-z0-9]/.test(value)) return "Password must include a special character.";
+  return null;
+};
+
+function PasswordField({
+  label,
+  value,
+  onChange,
+  visible,
+  onToggle,
+  autoComplete,
+  error
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  visible: boolean;
+  onToggle: () => void;
+  autoComplete: "new-password" | "current-password";
+  error?: string | null;
+}) {
+  const inputId = useId();
+  const errorId = `${inputId}-error`;
+  const action = `${visible ? "Hide" : "Show"} ${label.toLocaleLowerCase("en-US")}`;
+
+  return (
+    <div className="grid gap-2 text-sm font-medium text-slate-700">
+      <label htmlFor={inputId}>{label}</label>
+      <div className="relative">
+        <input
+          id={inputId}
+          className={cn(
+            "focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 pr-12 text-base text-slate-900",
+            error && "border-red-500"
+          )}
+          type={visible ? "text" : "password"}
+          autoComplete={autoComplete}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? errorId : undefined}
+          required
+        />
+        <button
+          className="focus-ring absolute inset-y-1 right-1 inline-grid w-10 place-items-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-navy-800"
+          type="button"
+          aria-label={action}
+          aria-pressed={visible}
+          title={action}
+          onClick={onToggle}
+        >
+          {visible ? <EyeOff aria-hidden size={19} /> : <Eye aria-hidden size={19} />}
+        </button>
+      </div>
+      {error ? <span id={errorId} className="text-sm text-red-700">{error}</span> : null}
+    </div>
+  );
+}
 
 export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
   const [details, setDetails] = useState<AccountInviteDetails | null>(null);
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
   const [confirmationCode, setConfirmationCode] = useState("");
   const [phase, setPhase] = useState<SetupPhase>("PASSWORD");
   const [loading, setLoading] = useState(true);
@@ -68,6 +138,20 @@ export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
 
   const start = async (event: FormEvent) => {
     event.preventDefault();
+    const exactPasswordError = passwordIssue(password);
+    const exactConfirmPasswordError = !confirmPassword
+      ? "Please confirm your password."
+      : confirmPassword !== password
+        ? "Passwords do not match."
+        : null;
+    setPasswordError(exactPasswordError);
+    setConfirmPasswordError(exactConfirmPasswordError);
+    if (exactPasswordError || exactConfirmPasswordError) {
+      setError(exactPasswordError ?? exactConfirmPasswordError);
+      setMessage(null);
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     setMessage(null);
@@ -82,11 +166,20 @@ export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
         }
       } else {
         setPhase("CONFIRM");
+        setConfirmPassword("");
+        setPasswordVisible(false);
+        setConfirmPasswordVisible(false);
         setResendCooldown(60);
         setMessage("A fresh verification code was sent to your email.");
       }
     } catch (caught) {
-      setError(caught instanceof AssessmentApiError ? caught.message : "We could not start account setup.");
+      if (caught instanceof AssessmentApiError) {
+        const exactIssue = caught.issues?.find((issue) => issue.path === "password")?.message;
+        setPasswordError(exactIssue ?? null);
+        setError(exactIssue ?? caught.message);
+      } else {
+        setError("We could not start account setup.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -178,12 +271,38 @@ export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
         {message ? <p className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">{message}</p> : null}
 
         {phase === "PASSWORD" && details ? (
-          <form className="mt-7 grid gap-5" onSubmit={start}>
-            <Input label="Create password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <form className="mt-7 grid gap-5" noValidate onSubmit={start}>
+            <PasswordField
+              label="Create password"
+              value={password}
+              onChange={(value) => {
+                setPassword(value);
+                setPasswordError(null);
+                setConfirmPasswordError(null);
+                setError(null);
+              }}
+              visible={passwordVisible}
+              onToggle={() => setPasswordVisible((current) => !current)}
+              autoComplete="new-password"
+              error={passwordError}
+            />
+            <PasswordField
+              label="Confirm password"
+              value={confirmPassword}
+              onChange={(value) => {
+                setConfirmPassword(value);
+                setConfirmPasswordError(null);
+                setError(null);
+              }}
+              visible={confirmPasswordVisible}
+              onToggle={() => setConfirmPasswordVisible((current) => !current)}
+              autoComplete="new-password"
+              error={confirmPasswordError}
+            />
             <p className="rounded-xl bg-navy-50 p-4 text-sm text-navy-800">
               Use at least 12 characters with uppercase, lowercase, a number, and a special character. We&apos;ll email a single-use verification code before portal access is enabled. If you already have a Savians account, enter its existing password instead.
             </p>
-            <Button type="submit" disabled={submitting || password.length < 12}>
+            <Button type="submit" disabled={submitting}>
               <KeyRound aria-hidden className="mr-2" size={17} />
               {submitting ? "Preparing account..." : "Continue securely"}
             </Button>
@@ -196,7 +315,14 @@ export function AccountSetupClient({ inviteToken }: { inviteToken: string }) {
               <p className="font-semibold">Your reusable account was found</p>
               <p className="mt-1">Sign in with the password you already use. This assessment will then be connected to the same account.</p>
             </div>
-            <Input label="Existing password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+            <PasswordField
+              label="Existing password"
+              value={password}
+              onChange={setPassword}
+              visible={passwordVisible}
+              onToggle={() => setPasswordVisible((current) => !current)}
+              autoComplete="current-password"
+            />
             <Button type="submit" disabled={submitting || !password}>
               <LogIn aria-hidden className="mr-2" size={17} />
               {submitting ? "Signing in..." : "Sign in and continue"}

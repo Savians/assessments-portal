@@ -208,7 +208,16 @@ export async function startAccountSetup(input: { inviteToken: string; password: 
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), cache: "no-store"
   });
   const body = (await response.json()) as { status: "CONFIRMATION_REQUIRED" | "EXISTING_ACCOUNT"; email: string } | ApiErrorBody;
-  if (!response.ok) throw new AssessmentApiError((body as ApiErrorBody).message ?? "We could not start account setup.", (body as ApiErrorBody).issues);
+  if (!response.ok) {
+    const error = body as ApiErrorBody;
+    throw new AssessmentApiError(
+      error.issues?.[0]?.message ?? error.message ?? "We could not start account setup.",
+      error.issues,
+      error.error,
+      response.status,
+      error.retryAfterSeconds
+    );
+  }
   return body as { status: "CONFIRMATION_REQUIRED" | "EXISTING_ACCOUNT"; email: string };
 }
 

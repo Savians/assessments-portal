@@ -3,6 +3,7 @@ import {
   AccountAuthError,
   AccountAuthService,
   CognitoMutationError,
+  setupSchema,
   type AccountAuthRepository,
   type AccountInvite,
   type AccountInviteNotifier,
@@ -584,5 +585,24 @@ describe("AccountAuthService", () => {
     })).rejects.toMatchObject({ code: "INVALID_PASSWORD_RESET_CODE", statusCode: 400 });
     expect(cognito.passwordSets).toBe(0);
     expect(repo.recoveredLinks).toBe(0);
+  });
+});
+
+describe("setupSchema password feedback", () => {
+  it("returns the exact missing-uppercase rule", () => {
+    const result = setupSchema.safeParse({
+      inviteToken: "a".repeat(43),
+      password: "lowercase@1234"
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: ["password"],
+          message: "Password must include an uppercase letter."
+        })
+      );
+    }
   });
 });

@@ -6,6 +6,114 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { PrismaPaymentRepository } from "./prisma-payment-repository";
 
+describe("PrismaPaymentRepository invoice reconciliation metadata", () => {
+  it.each([
+    { label: "persists a recovered invoice number", invoiceNumber: "1001" },
+    { label: "does not clear an invoice number when none is supplied", invoiceNumber: undefined }
+  ])("$label while recording a still-open invoice", async ({ invoiceNumber }) => {
+    const update = vi.fn().mockResolvedValue({});
+    const prisma = {
+      assessmentSession: { update },
+      paymentReconciliation: { create: vi.fn().mockResolvedValue({}) },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn().mockResolvedValue([])
+    } as unknown as PrismaClient;
+    const repository = new PrismaPaymentRepository(prisma);
+    const checkedAt = new Date("2026-07-05T12:00:00.000Z");
+
+    await repository.recordStillOpen(
+      "session-1",
+      2997,
+      checkedAt,
+      invoiceNumber
+    );
+
+    const data = update.mock.calls[0]?.[0]?.data as Record<string, unknown>;
+    expect(data).toMatchObject({
+      qbInvoiceBalance: 2997,
+      lastStatusCheckedAt: checkedAt
+    });
+    if (invoiceNumber) {
+      expect(data.qbInvoiceNumber).toBe(invoiceNumber);
+    } else {
+      expect(data).not.toHaveProperty("qbInvoiceNumber");
+    }
+  });
+
+  it.each([
+    {
+      label: "the initial paid transition",
+      status: AssessmentStatus.PAYMENT_PENDING,
+      transitionCount: 1
+    },
+    {
+      label: "a later account status",
+      status: AssessmentStatus.ACCOUNT_INVITED,
+      transitionCount: 0
+    }
+  ])("persists a recovered invoice number during $label", async ({
+    status,
+    transitionCount
+  }) => {
+    const checkedAt = new Date("2026-07-05T12:00:00.000Z");
+    const update = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: transitionCount });
+    const transaction = {
+      assessmentSession: {
+        findUniqueOrThrow: vi.fn()
+          .mockResolvedValueOnce({ status })
+          .mockResolvedValueOnce({
+            id: "session-1",
+            normalizedEmail: "client@example.com",
+            firstName: "Jane",
+            phone: "+19185550123",
+            assessmentYear: 2026,
+            serviceAmount: { toNumber: () => 2997 },
+            currency: "USD",
+            status: transitionCount === 1
+              ? AssessmentStatus.PAID_VERIFIED
+              : status,
+            statusTokenExpiresAt: new Date("2026-08-01T00:00:00.000Z"),
+            qbInvoiceId: "invoice-1",
+            qbInvoiceNumber: "1001",
+            qbInvoiceBalance: { toNumber: () => 0 },
+            invoiceSentAt: new Date("2026-07-05T11:00:00.000Z"),
+            lastStatusCheckedAt: checkedAt,
+            paymentVerifiedAt: checkedAt,
+            accountCreationAllowed: true
+          }),
+        updateMany,
+        update
+      },
+      paymentReconciliation: { create: vi.fn().mockResolvedValue({}) },
+      assessmentStatusHistory: { create: vi.fn().mockResolvedValue({}) },
+      auditLog: { create: vi.fn().mockResolvedValue({}) }
+    };
+    const prisma = {
+      $transaction: vi.fn(async (
+        callback: (client: typeof transaction) => Promise<unknown>
+      ) => callback(transaction))
+    } as unknown as PrismaClient;
+    const repository = new PrismaPaymentRepository(prisma);
+
+    await expect(repository.recordPaidVerified(
+      "session-1",
+      0,
+      checkedAt,
+      "1001"
+    )).resolves.toMatchObject({
+      session: { qbInvoiceNumber: "1001" }
+    });
+
+    const persistenceCall = transitionCount === 1
+      ? updateMany.mock.calls[0]?.[0]
+      : update.mock.calls[0]?.[0];
+    expect(persistenceCall).toEqual(expect.objectContaining({
+      data: expect.objectContaining({ qbInvoiceNumber: "1001" })
+    }));
+  });
+});
+
 describe("PrismaPaymentRepository payment-confirmation retries", () => {
   it("selects every paid forward status that has no SENT confirmation", async () => {
     const findMany = vi.fn().mockResolvedValue([]);

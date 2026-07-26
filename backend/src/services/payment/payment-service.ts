@@ -44,11 +44,17 @@ export interface PaymentRepository {
   findSessionByTokenHash(tokenHash: string): Promise<PaymentSession | null>;
   findSessionByInvoiceId(invoiceId: string): Promise<PaymentSession | null>;
   findOpenInvoiceSessions(limit: number): Promise<PaymentSession[]>;
-  recordStillOpen(sessionId: string, balance: number, checkedAt: Date): Promise<void>;
+  recordStillOpen(
+    sessionId: string,
+    balance: number,
+    checkedAt: Date,
+    invoiceNumber?: string
+  ): Promise<void>;
   recordPaidVerified(
     sessionId: string,
     balance: number,
-    checkedAt: Date
+    checkedAt: Date,
+    invoiceNumber?: string
   ): Promise<{ transitioned: boolean; session: PaymentSession }>;
   recordVerificationFailure(sessionId: string, message: string, checkedAt: Date): Promise<void>;
   recordPaymentConfirmationEmail(input: {
@@ -233,11 +239,14 @@ export class PaymentStatusService {
       if (invoice.id !== session.qbInvoiceId) throw new Error("QuickBooks returned a different invoice ID");
       if (invoice.currency && invoice.currency !== session.currency) throw new Error(`Invoice currency mismatch: expected ${session.currency}, received ${invoice.currency}`);
       if (!moneyEquals(invoice.totalAmount, session.serviceAmount)) throw new Error(`Invoice amount mismatch: expected ${session.serviceAmount}, received ${invoice.totalAmount ?? "unknown"}`);
+      const invoiceNumber =
+        invoice.number?.trim() || session.qbInvoiceNumber || undefined;
       if (moneyEquals(invoice.balance, 0)) {
         const verified = await this.repository.recordPaidVerified(
           session.id,
           invoice.balance,
-          checkedAt
+          checkedAt,
+          invoiceNumber
         );
         if (
           verified.session.accountCreationAllowed &&
@@ -247,8 +256,18 @@ export class PaymentStatusService {
         }
         return verified.session;
       }
-      await this.repository.recordStillOpen(session.id, invoice.balance, checkedAt);
-      return { ...session, qbInvoiceBalance: invoice.balance, lastStatusCheckedAt: checkedAt };
+      await this.repository.recordStillOpen(
+        session.id,
+        invoice.balance,
+        checkedAt,
+        invoiceNumber
+      );
+      return {
+        ...session,
+        qbInvoiceNumber: invoiceNumber ?? session.qbInvoiceNumber,
+        qbInvoiceBalance: invoice.balance,
+        lastStatusCheckedAt: checkedAt
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown QuickBooks verification error";
       await this.repository.recordVerificationFailure(session.id, message, checkedAt);
