@@ -339,8 +339,8 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
         ) : null}
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[290px_minmax(0,1fr)]">
-        <Card className="h-fit p-4 lg:sticky lg:top-6">
+      <div className="mt-6 grid gap-6 lg:items-stretch lg:grid-cols-[290px_minmax(0,1fr)]">
+        <Card className="flex min-h-0 flex-col p-4 lg:[contain:size]">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">Document Drive</p>
@@ -352,7 +352,7 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
             </Button>
           </div>
 
-          <ol className="mt-4 grid gap-0 lg:max-h-[calc(100vh-300px)] lg:min-h-[420px] lg:overflow-y-auto lg:px-1" aria-label="Suggested document upload order">
+          <ol className="mt-4 grid gap-0 lg:min-h-0 lg:flex-1 lg:content-start lg:overflow-y-auto lg:px-1" aria-label="Suggested document upload order">
             {documentFolders.map((folder, index) => {
               const folderDocuments = documentsByCategory.get(folder.category) ?? [];
               const isActive = folder.category === activeCategory;

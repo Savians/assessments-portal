@@ -33,6 +33,11 @@ describe("PortalDocumentsClient category sequence", () => {
 
     await waitFor(() => expect(api.loadDocuments).toHaveBeenCalledWith("portal-token"));
     const sequence = screen.getByRole("list", { name: "Suggested document upload order" });
+    const categoriesPanel = screen.getByRole("heading", { name: "Categories" }).closest("section");
+    expect(categoriesPanel).toHaveClass("flex", "min-h-0", "flex-col", "lg:[contain:size]");
+    expect(categoriesPanel).not.toHaveClass("h-fit");
+    expect(sequence).toHaveClass("lg:min-h-0", "lg:flex-1", "lg:content-start", "lg:overflow-y-auto");
+    expect(sequence).not.toHaveClass("lg:max-h-[calc(100vh-300px)]");
     expect(within(sequence).getAllByRole("listitem")).toHaveLength(10);
     expect(sequence.querySelectorAll("[data-upload-sequence-connector]")).toHaveLength(9);
     expect(sequence.querySelectorAll(".document-sequence-marker")).toHaveLength(10);
