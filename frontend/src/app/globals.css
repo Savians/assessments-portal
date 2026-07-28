@@ -117,62 +117,29 @@ a { color: inherit; text-decoration: none; }
 .dark .shadow-card { box-shadow: 0 18px 50px rgb(0 0 0 / 0.34); }
 .dark .focus-ring { --tw-ring-offset-color: #070d1b; }
 
-/*
- * The document rail is one continuous visual journey. Numbered chevrons
- * establish the order, and their tapered connectors flow into the next step.
- */
-.document-sequence-step {
-  --sequence-accent: #294a9f;
-  --sequence-accent-deep: #172f73;
-  --sequence-soft: #eef2ff;
-}
-.document-sequence-step[data-tone="1"] {
-  --sequence-accent: #a7791e;
-  --sequence-accent-deep: #78530f;
-  --sequence-soft: #fff7dd;
-}
-.document-sequence-step[data-tone="2"] {
-  --sequence-accent: #137c79;
-  --sequence-accent-deep: #0b5856;
-  --sequence-soft: #e9f8f7;
-}
+/* A single brand-navy arrow strip keeps the document order clear and quiet. */
+.document-sequence-step { --sequence-strip: #31468f; }
 .document-sequence-card {
   border-color: #d8dfeb;
-  background: linear-gradient(110deg, #ffffff 0%, #ffffff 70%, var(--sequence-soft) 145%);
+  background: #ffffff;
   color: #14235c;
   box-shadow: 0 7px 20px rgb(20 35 92 / 0.055);
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 .document-sequence-marker {
-  position: relative;
-  isolation: isolate;
   color: #ffffff;
-  background: linear-gradient(145deg, var(--sequence-accent-deep), var(--sequence-accent));
-  clip-path: polygon(0 0, 76% 0, 100% 50%, 76% 100%, 0 100%, 19% 50%);
-  filter: drop-shadow(2px 0 3px rgb(20 35 92 / 0.15));
+  background: var(--sequence-strip);
+  clip-path: polygon(0 0, 100% 0, 100% 78%, 50% 100%, 0 78%);
 }
-.document-sequence-marker::before {
-  position: absolute;
-  z-index: -1;
-  inset: 7px 11px 7px 7px;
-  border: 1px solid rgb(255 255 255 / 0.34);
-  clip-path: inherit;
-  content: "";
-}
-.document-sequence-step[data-tone="1"] .document-sequence-marker {
-  color: #0c1539;
-  background: linear-gradient(145deg, #f1d27f, #d5a52d);
-}
-.document-sequence-detail { color: #64748b; }
 .document-sequence-direction {
   position: relative;
-  color: var(--sequence-accent);
+  color: #31468f;
 }
 .document-sequence-direction::before {
   position: absolute;
   inset: 13px 4px;
   border-radius: 999px;
-  background: var(--sequence-soft);
+  background: #eef2ff;
   content: "";
 }
 .document-sequence-chevron {
@@ -185,29 +152,16 @@ a { color: inherit; text-decoration: none; }
   color: #ffffff;
   box-shadow: 0 13px 28px rgb(20 47 118 / 0.24);
 }
-.document-sequence-card[data-active="true"] .document-sequence-marker {
-  color: #0c1539;
-  background: linear-gradient(145deg, #f1d27f, #e1b83e);
-  filter: drop-shadow(2px 0 4px rgb(0 0 0 / 0.2));
-}
-.document-sequence-card[data-active="true"] .document-sequence-detail { color: rgb(255 255 255 / 0.74); }
 .document-sequence-card[data-active="true"] .document-sequence-direction { color: #ffffff; }
 .document-sequence-card[data-active="true"] .document-sequence-direction::before { background: rgb(255 255 255 / 0.12); }
 .document-sequence-connector {
-  --connector-color: var(--sequence-accent);
-  background: linear-gradient(180deg, var(--connector-color), #d2a637);
-  clip-path: polygon(43% 0, 57% 0, 57% 32%, 76% 32%, 50% 100%, 24% 32%, 43% 32%);
-  filter: drop-shadow(0 2px 2px rgb(20 35 92 / 0.14));
-  opacity: 0.82;
-}
-.document-sequence-step[data-active="true"] .document-sequence-connector {
-  --connector-color: #d2a637;
-  opacity: 1;
+  background: var(--sequence-strip);
+  clip-path: polygon(47% 0, 53% 0, 53% 100%, 47% 100%);
 }
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .document-sequence-card:hover {
-    border-color: var(--sequence-accent);
+    border-color: #31468f;
     box-shadow: 0 11px 25px rgb(20 35 92 / 0.12);
     transform: translateX(3px);
   }
@@ -219,25 +173,30 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (min-width: 1024px) {
-  .document-sequence-title,
-  .document-sequence-detail {
+  .document-sequence-title {
     display: -webkit-box;
     overflow: hidden;
     -webkit-box-orient: vertical;
   }
   .document-sequence-title { -webkit-line-clamp: 2; }
-  .document-sequence-detail { -webkit-line-clamp: 2; }
 }
 
 .dark .document-sequence-card {
   border-color: #34425a;
-  background: linear-gradient(112deg, #111a2e 0%, #111a2e 74%, #17233b 140%);
+  background: #111a2e;
   color: #edf2ff;
   box-shadow: 0 9px 24px rgb(0 0 0 / 0.18);
 }
-.dark .document-sequence-detail { color: #a9b5c7; }
 .dark .document-sequence-direction::before { background: #202d49; }
 .dark .document-sequence-card[data-active="true"] {
   border-color: #7186d4;
   background: linear-gradient(115deg, #142f76 0%, #1c397f 70%, #294d9f 100%);
+}
+
+@media (forced-colors: active) {
+  .document-sequence-marker {
+    color: HighlightText;
+    background: Highlight;
+  }
+  .document-sequence-connector { background: CanvasText; }
 }

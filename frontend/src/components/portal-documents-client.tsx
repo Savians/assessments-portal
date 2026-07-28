@@ -354,35 +354,30 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
 
           <ol className="mt-4 grid gap-0 lg:min-h-0 lg:flex-1 lg:content-start lg:overflow-y-auto lg:px-1" aria-label="Suggested document upload order">
             {documentFolders.map((folder, index) => {
-              const folderDocuments = documentsByCategory.get(folder.category) ?? [];
               const isActive = folder.category === activeCategory;
               const stepNumber = String(index + 1).padStart(2, "0");
               return (
                 <li
                   key={folder.category}
-                  className="document-sequence-step relative pb-3 last:pb-0"
+                  className="document-sequence-step relative pb-2 last:pb-0"
                   data-active={isActive ? "true" : "false"}
-                  data-tone={String(index % 3)}
                 >
                   <button
-                    className="document-sequence-card focus-ring group grid min-h-[70px] w-full grid-cols-[42px_minmax(0,1fr)_26px] items-stretch overflow-hidden rounded-[18px] border text-left"
+                    className="document-sequence-card focus-ring group grid min-h-14 w-full grid-cols-[36px_minmax(0,1fr)_24px] items-stretch overflow-hidden rounded-[14px] border text-left"
                     type="button"
                     aria-current={isActive ? "step" : undefined}
-                    aria-label={`Step ${index + 1} of ${documentFolders.length}: ${folder.label}. ${pluralize(folderDocuments.length, "file")}. ${folder.helper}`}
+                    aria-label={`Step ${index + 1} of ${documentFolders.length}: ${folder.label}`}
                     data-active={isActive ? "true" : "false"}
                     onClick={() => {
                       setActiveCategory(folder.category);
                       setError(null);
                     }}
                   >
-                    <span aria-hidden className="document-sequence-marker grid place-items-center text-[11px] font-extrabold tracking-[0.1em]">
+                    <span aria-hidden className="document-sequence-marker grid place-items-center text-[11px] font-extrabold tracking-[0.08em]">
                       {stepNumber}
                     </span>
-                    <span className="min-w-0 px-3 py-2.5">
+                    <span className="flex min-w-0 items-center px-3 py-2.5">
                       <span className="document-sequence-title block text-[13px] font-bold leading-[17px]">{folder.label}</span>
-                      <span className="document-sequence-detail mt-1 block text-[11px] leading-[15px]">
-                        {pluralize(folderDocuments.length, "file")} · {folder.helper}
-                      </span>
                     </span>
                     <span aria-hidden className="document-sequence-direction grid place-items-center">
                       <ChevronRight className="document-sequence-chevron" size={17} strokeWidth={2.4} />
@@ -391,7 +386,7 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
                   {index < documentFolders.length - 1 ? (
                     <span
                       aria-hidden
-                      className="document-sequence-connector pointer-events-none absolute bottom-0 left-0 h-3 w-[42px]"
+                      className="document-sequence-connector pointer-events-none absolute bottom-0 left-0 h-2 w-9"
                       data-upload-sequence-connector
                     />
                   ) : null}

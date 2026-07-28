@@ -42,12 +42,17 @@ describe("PortalDocumentsClient category sequence", () => {
     expect(sequence.querySelectorAll("[data-upload-sequence-connector]")).toHaveLength(9);
     expect(sequence.querySelectorAll(".document-sequence-marker")).toHaveLength(10);
     expect(sequence.querySelector(".document-sequence-marker")).toHaveTextContent("01");
+    expect(sequence.querySelector(".document-sequence-detail")).not.toBeInTheDocument();
+    expect(sequence.querySelector("[data-tone]")).not.toBeInTheDocument();
+    expect(sequence).not.toHaveTextContent("0 files");
+    expect(sequence).not.toHaveTextContent("Last year and any prior returns we should review.");
     expect(sequence.querySelector(".lucide-folder")).not.toBeInTheDocument();
     expect(sequence.querySelector(".lucide-folder-open")).not.toBeInTheDocument();
     expect(sequence.querySelector(".lucide-arrow-down")).not.toBeInTheDocument();
 
     const firstCategory = within(sequence).getByRole("button", { name: /Step 1 of 10: Prior Tax Returns Documents/ });
     expect(firstCategory).toHaveAttribute("aria-current", "step");
+    expect(firstCategory).toHaveAccessibleName("Step 1 of 10: Prior Tax Returns Documents");
 
     fireEvent.click(within(sequence).getByRole("button", { name: /Step 2 of 10: W-2 Income Documents/ }));
     expect(screen.getByRole("heading", { name: "W-2 Income Documents" })).toBeInTheDocument();
