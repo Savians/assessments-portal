@@ -13,6 +13,15 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function FieldLabel({ label, required = false }: { label: ReactNode; required?: boolean }) {
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      {required ? <span aria-hidden="true" className="font-bold text-red-700">*</span> : null}
+      <span>{label}</span>
+    </span>
+  );
+}
+
 export function Button({
   className,
   variant = "primary",
@@ -35,10 +44,10 @@ export function Button({
 export const Input = forwardRef<
   HTMLInputElement,
   InputHTMLAttributes<HTMLInputElement> & { label: string; error?: string }
->(function Input({ label, error, className, ...props }, ref) {
+>(function Input({ label, error, className, required, "aria-label": ariaLabel, ...props }, ref) {
   return (
     <label className="grid gap-2 text-sm font-medium text-slate-700">
-      {label}
+      <FieldLabel label={label} required={required} />
       <input
         ref={ref}
         className={cn(
@@ -46,7 +55,9 @@ export const Input = forwardRef<
           error && "border-red-500",
           className
         )}
+        aria-label={ariaLabel ?? label}
         aria-invalid={Boolean(error)}
+        required={required}
         {...props}
       />
       {error ? <span className="text-sm text-red-700">{error}</span> : null}
@@ -57,10 +68,10 @@ export const Input = forwardRef<
 export const Select = forwardRef<
   HTMLSelectElement,
   SelectHTMLAttributes<HTMLSelectElement> & { label: string; children: ReactNode; error?: string }
->(function Select({ label, children, className, error, ...props }, ref) {
+>(function Select({ label, children, className, error, required, "aria-label": ariaLabel, ...props }, ref) {
   return (
     <label className="grid gap-2 text-sm font-medium text-slate-700">
-      {label}
+      <FieldLabel label={label} required={required} />
       <select
         ref={ref}
         className={cn(
@@ -68,7 +79,9 @@ export const Select = forwardRef<
           error && "border-red-500",
           className
         )}
+        aria-label={ariaLabel ?? label}
         aria-invalid={Boolean(error)}
+        required={required}
         {...props}
       >
         {children}
@@ -81,7 +94,7 @@ export const Select = forwardRef<
 export const Checkbox = forwardRef<
   HTMLInputElement,
   InputHTMLAttributes<HTMLInputElement> & { label: string; error?: string }
->(function Checkbox({ label, error, ...props }, ref) {
+>(function Checkbox({ label, error, required, "aria-label": ariaLabel, ...props }, ref) {
   return (
     <div>
       <label className="flex items-start gap-3 text-sm text-slate-700">
@@ -89,10 +102,12 @@ export const Checkbox = forwardRef<
           ref={ref}
           className="focus-ring mt-1 size-4 rounded border-slate-300"
           type="checkbox"
+          aria-label={ariaLabel ?? label}
           aria-invalid={Boolean(error)}
+          required={required}
           {...props}
         />
-        <span>{label}</span>
+        <FieldLabel label={label} required={required} />
       </label>
       {error ? <span className="mt-2 block text-sm text-red-700">{error}</span> : null}
     </div>

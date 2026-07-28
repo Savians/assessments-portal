@@ -29,8 +29,8 @@ import { Button, Card, ErrorAlert, Input, LoadingOverlay, Select, StatusBadge, c
 import { PortalDocumentsClient } from "@/components/portal-documents-client";
 import {
   generatedPropertyLabel,
-  normalizePortalPropertyType,
-  portalPropertyTypeOptions,
+  normalizePortalPropertyCategory,
+  portalPropertyCategoryOptions,
   preparePortalPropertiesForSave
 } from "@/lib/portal-properties";
 
@@ -112,7 +112,7 @@ const emptyProfileDraft = (): ProfileDraft => ({
 });
 
 const emptyProperty = (): PortalProperty => ({
-  category: "PRIMARY_HOME",
+  category: "Primary Residence",
   propertyType: "Primary Residence",
   label: "",
   fullAddress: "",
@@ -329,10 +329,10 @@ export function PortalDashboardClient() {
   const syncDashboard = useCallback((response: PortalDashboardResponse) => {
     setDashboard(response);
     setProfileDraft(draftFromDashboard(response));
-    setProperties(response.properties.map((property) => ({
-      ...property,
-      propertyType: normalizePortalPropertyType(property.propertyType)
-    })));
+    setProperties(response.properties.map((property) => {
+      const category = normalizePortalPropertyCategory(property.category, property.propertyType);
+      return { ...property, category, propertyType: category };
+    }));
     setBusinessInvestments(response.businessInvestments);
     setSelectedPropertyIndex((current) => response.properties.length === 0 ? null : Math.min(current ?? 0, response.properties.length - 1));
     setSelectedBusinessIndex((current) => response.businessInvestments.length === 0 ? null : Math.min(current ?? 0, response.businessInvestments.length - 1));
@@ -695,11 +695,15 @@ export function PortalDashboardClient() {
                       <button type="button" className="focus-ring grid size-10 place-items-center rounded-full border border-red-200 text-red-700 hover:bg-red-50" onClick={() => removeProperty(selectedPropertyIndex)} aria-label={`Remove property ${selectedPropertyIndex + 1}`}><Trash2 aria-hidden size={16} /></button>
                     </div>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <Input label="Property Category" value={selectedProperty.category} onChange={(event) => updateProperty(selectedPropertyIndex, { category: event.target.value })} required />
-                      <Input label="Use During Tax Year" value={selectedProperty.taxYearUse} onChange={(event) => updateProperty(selectedPropertyIndex, { taxYearUse: event.target.value })} required />
-                      <Select label="Property Type" value={selectedProperty.propertyType} onChange={(event) => updateProperty(selectedPropertyIndex, { propertyType: event.target.value })} required>
-                        {portalPropertyTypeOptions.map((propertyType) => <option key={propertyType} value={propertyType}>{propertyType}</option>)}
+                      <Select
+                        label="Property Category"
+                        value={selectedProperty.category}
+                        onChange={(event) => updateProperty(selectedPropertyIndex, { category: event.target.value, propertyType: event.target.value })}
+                        required
+                      >
+                        {portalPropertyCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
                       </Select>
+                      <Input label="Use During Tax Year" value={selectedProperty.taxYearUse} onChange={(event) => updateProperty(selectedPropertyIndex, { taxYearUse: event.target.value })} required />
                       <Input label="Full Address" className="md:col-span-2" value={selectedProperty.fullAddress} onChange={(event) => updateProperty(selectedPropertyIndex, { fullAddress: event.target.value })} required />
                       <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="flex items-center justify-between gap-3">

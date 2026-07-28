@@ -69,7 +69,8 @@ export function AssessmentStartForm() {
         <legend className="mb-4 text-xl font-bold text-navy-800">Your information</legend>
         <div className="grid gap-5 md:grid-cols-3">
           <Input
-            label="First name *"
+            label="First name"
+            required
             autoComplete="given-name"
             error={errors.firstName?.message}
             {...register("firstName")}
@@ -81,7 +82,8 @@ export function AssessmentStartForm() {
             {...register("middleName")}
           />
           <Input
-            label="Last name *"
+            label="Last name"
+            required
             autoComplete="family-name"
             error={errors.lastName?.message}
             {...register("lastName")}
@@ -89,7 +91,8 @@ export function AssessmentStartForm() {
         </div>
         <div className="grid gap-5 md:grid-cols-2">
           <Input
-            label="Phone *"
+            label="Phone"
+            required
             type="tel"
             inputMode="tel"
             autoComplete="tel"
@@ -98,7 +101,8 @@ export function AssessmentStartForm() {
             {...register("phone")}
           />
           <Input
-            label="Email address *"
+            label="Email address"
+            required
             type="email"
             autoComplete="email"
             error={errors.email?.message}
@@ -109,7 +113,8 @@ export function AssessmentStartForm() {
 
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
         <Checkbox
-          label="I consent to Savians Tax Advisors using this information to create or resume my annual Tax Assessment and contact me about the next onboarding step. *"
+          label="I consent to Savians Tax Advisors using this information to create or resume my annual Tax Assessment and contact me about the next onboarding step."
+          required
           error={errors.consentAccepted?.message}
           {...register("consentAccepted")}
         />

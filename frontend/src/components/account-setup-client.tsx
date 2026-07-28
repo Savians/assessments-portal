@@ -13,7 +13,7 @@ import {
   type AccountInviteDetails
 } from "@/services/assessment-api";
 import { signInToPortal } from "@/services/portal-auth";
-import { Button, Card, cn, ErrorAlert, Input, LoadingOverlay, StatusBadge, Stepper } from "@/components/ui";
+import { Button, Card, cn, ErrorAlert, FieldLabel, Input, LoadingOverlay, StatusBadge, Stepper } from "@/components/ui";
 import { ONBOARDING_STEPS } from "@/lib/assessment-flow";
 type SetupPhase = "PASSWORD" | "CONFIRM" | "EXISTING" | "DONE";
 
@@ -50,10 +50,11 @@ function PasswordField({
 
   return (
     <div className="grid gap-2 text-sm font-medium text-slate-700">
-      <label htmlFor={inputId}>{label}</label>
+      <label htmlFor={inputId}><FieldLabel label={label} required /></label>
       <div className="relative">
         <input
           id={inputId}
+          aria-label={label}
           className={cn(
             "focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 pr-12 text-base text-slate-900",
             error && "border-red-500"

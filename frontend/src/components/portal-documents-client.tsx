@@ -3,7 +3,6 @@
 import type { ChangeEvent, DragEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowDown,
   CheckCircle2,
   ChevronRight,
   ExternalLink,
@@ -353,42 +352,48 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
             </Button>
           </div>
 
-          <ol className="mt-4 grid gap-0 lg:max-h-[calc(100vh-300px)] lg:min-h-[420px] lg:overflow-y-auto lg:pr-1" aria-label="Suggested document upload order">
+          <ol className="mt-4 grid gap-0 lg:max-h-[calc(100vh-300px)] lg:min-h-[420px] lg:overflow-y-auto lg:px-1" aria-label="Suggested document upload order">
             {documentFolders.map((folder, index) => {
               const folderDocuments = documentsByCategory.get(folder.category) ?? [];
               const isActive = folder.category === activeCategory;
+              const stepNumber = String(index + 1).padStart(2, "0");
               return (
-                <li key={folder.category} className="relative pb-4 last:pb-0">
+                <li
+                  key={folder.category}
+                  className="document-sequence-step relative pb-3 last:pb-0"
+                  data-active={isActive ? "true" : "false"}
+                  data-tone={String(index % 3)}
+                >
                   <button
-                    className={cn(
-                      "focus-ring flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition",
-                      isActive
-                        ? "border-navy-800 bg-navy-800 text-white shadow-card"
-                        : "border-slate-200 bg-white text-navy-800 hover:border-gold-300 hover:bg-gold-50"
-                    )}
+                    className="document-sequence-card focus-ring group grid min-h-[70px] w-full grid-cols-[42px_minmax(0,1fr)_26px] items-stretch overflow-hidden rounded-[18px] border text-left"
                     type="button"
                     aria-current={isActive ? "step" : undefined}
+                    aria-label={`Step ${index + 1} of ${documentFolders.length}: ${folder.label}. ${pluralize(folderDocuments.length, "file")}. ${folder.helper}`}
+                    data-active={isActive ? "true" : "false"}
                     onClick={() => {
                       setActiveCategory(folder.category);
                       setError(null);
                     }}
                   >
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-bold leading-4">{folder.label}</span>
-                      <span className={cn("mt-1 block text-[11px] leading-[15px]", isActive ? "text-white/75" : "text-slate-500")}>
+                    <span aria-hidden className="document-sequence-marker grid place-items-center text-[11px] font-extrabold tracking-[0.1em]">
+                      {stepNumber}
+                    </span>
+                    <span className="min-w-0 px-3 py-2.5">
+                      <span className="document-sequence-title block text-[13px] font-bold leading-[17px]">{folder.label}</span>
+                      <span className="document-sequence-detail mt-1 block text-[11px] leading-[15px]">
                         {pluralize(folderDocuments.length, "file")} · {folder.helper}
                       </span>
                     </span>
-                    <ChevronRight aria-hidden className={cn("shrink-0", isActive ? "text-white" : "text-slate-400")} size={16} />
+                    <span aria-hidden className="document-sequence-direction grid place-items-center">
+                      <ChevronRight className="document-sequence-chevron" size={17} strokeWidth={2.4} />
+                    </span>
                   </button>
                   {index < documentFolders.length - 1 ? (
                     <span
                       aria-hidden
-                      className="absolute bottom-0 left-1/2 grid h-4 -translate-x-1/2 place-items-center text-gold-600"
+                      className="document-sequence-connector pointer-events-none absolute bottom-0 left-0 h-3 w-[42px]"
                       data-upload-sequence-connector
-                    >
-                      <ArrowDown size={14} strokeWidth={2.5} />
-                    </span>
+                    />
                   ) : null}
                 </li>
               );

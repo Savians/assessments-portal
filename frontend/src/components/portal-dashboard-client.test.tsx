@@ -110,7 +110,7 @@ afterEach(() => {
 });
 
 describe("PortalDashboardClient", () => {
-  it("removes retired profile controls and uses the exact property-type workflow", async () => {
+  it("removes retired controls and uses one required property-category workflow", async () => {
     render(<PortalDashboardClient />);
 
     expect(await screen.findByRole("heading", { name: "Kiro Savians" })).toBeInTheDocument();
@@ -123,8 +123,11 @@ describe("PortalDashboardClient", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add Property" }));
 
     expect(screen.queryByLabelText("Property ID / Label")).not.toBeInTheDocument();
-    const propertyType = screen.getByLabelText("Property Type");
-    expect(within(propertyType).getAllByRole("option").map((option) => option.textContent)).toEqual([
+    expect(screen.queryByLabelText("Property Type")).not.toBeInTheDocument();
+    const propertyCategory = screen.getByLabelText("Property Category");
+    expect(propertyCategory.closest("label")).toHaveTextContent("*Property Category");
+    expect(propertyCategory).toBeRequired();
+    expect(within(propertyCategory).getAllByRole("option").map((option) => option.textContent)).toEqual([
       "Primary Residence",
       "Secondary / Vacation Residence",
       "Rental",
@@ -132,7 +135,8 @@ describe("PortalDashboardClient", () => {
       "Leased Apartment / Temporary Housing",
       "Other"
     ]);
-    expect(propertyType).toHaveValue("Primary Residence");
+    expect(propertyCategory).toHaveValue("Primary Residence");
+    fireEvent.change(propertyCategory, { target: { value: "Rental" } });
 
     const saveButton = screen.getByRole("button", { name: "Save" });
     fireEvent.submit(saveButton.closest("form")!);
@@ -140,7 +144,7 @@ describe("PortalDashboardClient", () => {
     await waitFor(() => expect(api.savePortalProperties).toHaveBeenCalledTimes(1));
     expect(api.savePortalProperties).toHaveBeenCalledWith(
       "portal-token",
-      expect.arrayContaining([expect.objectContaining({ label: "Property 1", propertyType: "Primary Residence" })])
+      expect.arrayContaining([expect.objectContaining({ label: "Property 1", category: "Rental", propertyType: "Rental" })])
     );
   });
 

@@ -1,4 +1,4 @@
-export const portalPropertyTypeOptions = [
+export const portalPropertyCategoryOptions = [
   "Primary Residence",
   "Secondary / Vacation Residence",
   "Rental",
@@ -7,9 +7,16 @@ export const portalPropertyTypeOptions = [
   "Other"
 ] as const;
 
-export type PortalPropertyType = (typeof portalPropertyTypeOptions)[number];
+export type PortalPropertyCategory = (typeof portalPropertyCategoryOptions)[number];
 
-const legacyPropertyTypeAliases: Record<string, PortalPropertyType> = {
+const legacyPropertyCategoryAliases: Record<string, PortalPropertyCategory> = {
+  PRIMARY_HOME: "Primary Residence",
+  PRIMARY_RESIDENCE: "Primary Residence",
+  SECONDARY_HOME: "Secondary / Vacation Residence",
+  VACATION_HOME: "Secondary / Vacation Residence",
+  RENTAL: "Rental",
+  SHORT_TERM_RENTAL: "Short-Term Rental / Airbnb",
+  LEASED_APARTMENT: "Leased Apartment / Temporary Housing",
   Residential: "Primary Residence",
   "Primary Home": "Primary Residence",
   "Vacation Home": "Secondary / Vacation Residence",
@@ -18,23 +25,34 @@ const legacyPropertyTypeAliases: Record<string, PortalPropertyType> = {
   "Leased Apartment": "Leased Apartment / Temporary Housing"
 };
 
-export function normalizePortalPropertyType(value: string): PortalPropertyType {
-  if ((portalPropertyTypeOptions as readonly string[]).includes(value)) {
-    return value as PortalPropertyType;
+export function normalizePortalPropertyCategory(category: string, legacyPropertyType = ""): PortalPropertyCategory {
+  if ((portalPropertyCategoryOptions as readonly string[]).includes(category)) {
+    return category as PortalPropertyCategory;
   }
-  return legacyPropertyTypeAliases[value] ?? "Other";
+
+  if ((portalPropertyCategoryOptions as readonly string[]).includes(legacyPropertyType)) {
+    return legacyPropertyType as PortalPropertyCategory;
+  }
+
+  return legacyPropertyCategoryAliases[legacyPropertyType]
+    ?? legacyPropertyCategoryAliases[category]
+    ?? "Other";
 }
 
 export function generatedPropertyLabel(index: number) {
   return `Property ${index + 1}`;
 }
 
-export function preparePortalPropertiesForSave<T extends { label: string; propertyType: string }>(
+export function preparePortalPropertiesForSave<T extends { category: string; label: string; propertyType: string }>(
   properties: T[]
 ): T[] {
-  return properties.map((property, index) => ({
-    ...property,
-    label: generatedPropertyLabel(index),
-    propertyType: normalizePortalPropertyType(property.propertyType)
-  }));
+  return properties.map((property, index) => {
+    const category = normalizePortalPropertyCategory(property.category, property.propertyType);
+    return {
+      ...property,
+      category,
+      label: generatedPropertyLabel(index),
+      propertyType: category
+    };
+  });
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff, LogIn, ShieldCheck } from "lucide-react";
-import { Button, Card, ErrorAlert, Input, LoadingOverlay, StatusBadge } from "@/components/ui";
+import { Button, Card, ErrorAlert, FieldLabel, Input, LoadingOverlay, StatusBadge } from "@/components/ui";
 import { getCurrentPortalAccessToken, getPortalIdentity, routeForPortalRole, signInToPortal } from "@/services/portal-auth";
 
 export function LoginClient() {
@@ -51,10 +51,11 @@ export function LoginClient() {
         <form className="mt-6 grid gap-4" onSubmit={submit}>
           <Input label="Email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required />
           <div className="grid gap-2 text-sm font-medium text-slate-700">
-            <label htmlFor="login-password">Password</label>
+            <label htmlFor="login-password"><FieldLabel label="Password" required /></label>
             <div className="relative">
               <input
                 id="login-password"
+                aria-label="Password"
                 className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 pr-12 text-base text-slate-900"
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"

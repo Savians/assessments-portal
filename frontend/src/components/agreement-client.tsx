@@ -88,9 +88,9 @@ export function AgreementClient({ token }: { token: string }) {
             <div className="flex justify-between gap-4"><dt>Invoice after signing</dt><dd className="font-semibold">{formatServiceAmount()}</dd></div>
           </dl>
           <div className="mt-6 grid gap-5">
-            <Checkbox checked={accepted} disabled={!documentReady} onChange={(event) => setAccepted(event.target.checked)} label={details?.agreement?.acknowledgementText ?? "I have read and agree to the complete agreement."} />
+            <Checkbox checked={accepted} disabled={!documentReady} onChange={(event) => setAccepted(event.target.checked)} label={details?.agreement?.acknowledgementText ?? "I have read and agree to the complete agreement."} required />
             {!documentReady && details?.agreement ? <p className="text-xs leading-5 text-amber-800" role="status">Agreement acceptance unlocks after every page is ready to review.</p> : null}
-            <Input label="Type your full legal name" value={typedName} onChange={(event) => setTypedName(event.target.value)} autoComplete="name" placeholder={details?.clientName} />
+            <Input label="Type your full legal name" value={typedName} onChange={(event) => setTypedName(event.target.value)} autoComplete="name" placeholder={details?.clientName} required />
             {error ? <ErrorAlert>{error}</ErrorAlert> : null}
             <Button disabled={!documentReady || !accepted || typedName.trim().length < 2 || submitting || !details?.agreement} onClick={submit} type="button">
               {submitting ? "Signing and creating invoice..." : "Sign Agreement & Create Invoice"}
