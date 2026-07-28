@@ -220,6 +220,33 @@ describe("portal profile service", () => {
     })).rejects.toBeInstanceOf(ZodError);
   });
 
+  it("accepts a fresh profile without the retired context and contact fields", async () => {
+    const repository = new InMemoryProfileRepository();
+    const service = new PortalProfileService(repository);
+
+    await expect(service.save(entitlement, {
+      ...completeInput,
+      clientType: "",
+      incomeRange: "",
+      estimatedTaxPaidRange: "",
+      preferredContact: ""
+    })).resolves.toMatchObject({
+      primaryTaxpayer: {
+        clientType: "INDIVIDUAL",
+        incomeRange: "$250K-$500K",
+        estimatedTaxPaidRange: "$50K-$100K"
+      },
+      profile: {
+        preferredContact: ""
+      }
+    });
+
+    expect(repository.savedInput?.clientType).toBeUndefined();
+    expect(repository.savedInput?.incomeRange).toBeUndefined();
+    expect(repository.savedInput?.estimatedTaxPaidRange).toBeUndefined();
+    expect(repository.savedInput?.preferredContact).toBeUndefined();
+  });
+
   it("rejects spouse details for non-married profiles", async () => {
     const service = new PortalProfileService(new InMemoryProfileRepository());
     await expect(service.save(entitlement, { ...completeInput, maritalStatus: "SINGLE" })).rejects.toMatchObject({

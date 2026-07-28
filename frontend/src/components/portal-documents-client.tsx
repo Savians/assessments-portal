@@ -3,12 +3,12 @@
 import type { ChangeEvent, DragEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ArrowDown,
   CheckCircle2,
   ChevronRight,
   ExternalLink,
   Eye,
   FileText,
-  Folder,
   FolderOpen,
   Plus,
   RefreshCw,
@@ -340,56 +340,60 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
         ) : null}
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[330px_minmax(0,1fr)]">
-        <Card className="h-fit lg:sticky lg:top-6">
+      <div className="mt-6 grid gap-6 lg:grid-cols-[290px_minmax(0,1fr)]">
+        <Card className="h-fit p-4 lg:sticky lg:top-6">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">Document Drive</p>
-              <h2 className="mt-2 text-xl font-bold text-navy-800">Categories</h2>
+              <h2 className="mt-1 text-lg font-bold text-navy-800">Categories</h2>
+              <p className="mt-1 text-xs text-slate-500">Work from top to bottom.</p>
             </div>
-            <Button type="button" variant="outline" className="min-h-10 px-3" onClick={() => void refresh()} disabled={loading}>
+            <Button type="button" variant="outline" className="min-h-10 px-3" onClick={() => void refresh()} disabled={loading} aria-label="Refresh document categories">
               <RefreshCw aria-hidden size={16} />
             </Button>
           </div>
 
-          <div className="mt-5 max-h-[calc(100vh-340px)] min-h-[420px] space-y-2 overflow-y-auto pr-1">
-            {documentFolders.map((folder) => {
+          <ol className="mt-4 grid gap-0 lg:max-h-[calc(100vh-300px)] lg:min-h-[420px] lg:overflow-y-auto lg:pr-1" aria-label="Suggested document upload order">
+            {documentFolders.map((folder, index) => {
               const folderDocuments = documentsByCategory.get(folder.category) ?? [];
               const isActive = folder.category === activeCategory;
               return (
-                <button
-                  key={folder.category}
-                  className={cn(
-                    "focus-ring flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition",
-                    isActive
-                      ? "border-navy-800 bg-navy-800 text-white shadow-card"
-                      : "border-slate-200 bg-white text-navy-800 hover:border-gold-300 hover:bg-gold-50"
-                  )}
-                  type="button"
-                  onClick={() => {
-                    setActiveCategory(folder.category);
-                    setError(null);
-                  }}
-                >
-                  <span
+                <li key={folder.category} className="relative pb-4 last:pb-0">
+                  <button
                     className={cn(
-                      "grid size-11 shrink-0 place-items-center rounded-xl",
-                      isActive ? "bg-white/15 text-white" : "bg-navy-50 text-navy-800"
+                      "focus-ring flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition",
+                      isActive
+                        ? "border-navy-800 bg-navy-800 text-white shadow-card"
+                        : "border-slate-200 bg-white text-navy-800 hover:border-gold-300 hover:bg-gold-50"
                     )}
+                    type="button"
+                    aria-current={isActive ? "step" : undefined}
+                    onClick={() => {
+                      setActiveCategory(folder.category);
+                      setError(null);
+                    }}
                   >
-                    {isActive ? <FolderOpen aria-hidden size={22} /> : <Folder aria-hidden size={22} />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-bold">{folder.label}</span>
-                    <span className={cn("mt-1 block truncate text-xs", isActive ? "text-white/75" : "text-slate-500")}>
-                      {pluralize(folderDocuments.length, "file")} · {folder.helper}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-bold leading-4">{folder.label}</span>
+                      <span className={cn("mt-1 block text-[11px] leading-[15px]", isActive ? "text-white/75" : "text-slate-500")}>
+                        {pluralize(folderDocuments.length, "file")} · {folder.helper}
+                      </span>
                     </span>
-                  </span>
-                  <ChevronRight aria-hidden className={cn("shrink-0", isActive ? "text-white" : "text-slate-400")} size={18} />
-                </button>
+                    <ChevronRight aria-hidden className={cn("shrink-0", isActive ? "text-white" : "text-slate-400")} size={16} />
+                  </button>
+                  {index < documentFolders.length - 1 ? (
+                    <span
+                      aria-hidden
+                      className="absolute bottom-0 left-1/2 grid h-4 -translate-x-1/2 place-items-center text-gold-600"
+                      data-upload-sequence-connector
+                    >
+                      <ArrowDown size={14} strokeWidth={2.5} />
+                    </span>
+                  ) : null}
+                </li>
               );
             })}
-          </div>
+          </ol>
         </Card>
 
         <Card className="min-w-0 overflow-hidden">

@@ -142,7 +142,7 @@ export class PrismaPortalProfileRepository implements PortalProfileRepository {
           zip: input.zip,
           homeowner: input.homeowner,
           maritalStatus: input.maritalStatus,
-          preferredContact: input.preferredContact ?? null,
+          preferredContact: input.preferredContact,
           residentStatus: input.residentStatus,
           ownsRealEstate: input.ownsRealEstate ?? null,
           ownsBusiness: input.ownsBusiness ?? null,
@@ -208,8 +208,8 @@ export class PrismaPortalProfileRepository implements PortalProfileRepository {
           clientType: input.clientType,
           businessName: input.businessName ?? null,
           state: input.state,
-          incomeRange: input.incomeRange ?? null,
-          estimatedTaxPaidRange: input.estimatedTaxPaidRange ?? null,
+          incomeRange: input.incomeRange,
+          estimatedTaxPaidRange: input.estimatedTaxPaidRange,
           ...(completesProfile
             ? { status: AssessmentStatus.PROFILE_COMPLETED, documentUploadAllowed: true }
             : {})

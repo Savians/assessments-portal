@@ -35,7 +35,7 @@ const propertySchema = z.object({
   id: z.string().uuid().optional(),
   category: z.string().trim().min(1, "Property category is required.").max(50),
   propertyType: z.string().trim().min(1, "Property type is required.").max(50),
-  label: z.string().trim().min(1, "Property label is required.").max(150),
+  label: optionalText(150),
   fullAddress: z.string().trim().min(1, "Property address is required.").max(300),
   acquiredYear: z.number().int().min(1900).max(new Date().getUTCFullYear() + 1),
   acquiredMethod: z.string().trim().min(1, "Acquired method is required.").max(40),
@@ -168,13 +168,13 @@ async function saveProperties(prisma: PrismaClient, entitlement: PortalEntitleme
   const profileId = await ensureProfileId(prisma, entitlement);
   await prisma.$transaction(async (tx) => {
     await tx.property.deleteMany({ where: { profileId } });
-    for (const property of input.properties) {
+    for (const [index, property] of input.properties.entries()) {
       const savedProperty = await tx.property.create({
         data: {
           profileId,
           category: property.category,
           propertyType: property.propertyType,
-          label: property.label,
+          label: property.label ?? `Property ${index + 1}`,
           fullAddress: property.fullAddress,
           acquiredYear: property.acquiredYear,
           acquiredMethod: property.acquiredMethod,

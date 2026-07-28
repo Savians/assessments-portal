@@ -65,11 +65,19 @@ const optionalTaxPaidRange = z.preprocess(
   (value) => value === "" ? undefined : value,
   z.enum(taxPaidRanges).optional()
 );
+const optionalClientType = z.preprocess(
+  (value) => value === "" ? undefined : value,
+  z.enum(clientTypes).optional()
+);
+const optionalPreferredContact = z.preprocess(
+  (value) => value === "" ? undefined : value,
+  z.enum(preferredContactMethods).optional()
+);
 
 export const savePortalProfileSchema = z
   .object({
     primaryDateOfBirth: dateOnly,
-    clientType: z.enum(clientTypes, { error: "Client type is required." }),
+    clientType: optionalClientType,
     businessName: optionalText(255),
     incomeRange: optionalIncomeRange,
     estimatedTaxPaidRange: optionalTaxPaidRange,
@@ -83,7 +91,7 @@ export const savePortalProfileSchema = z
       .regex(/^\d{5}(-\d{4})?$/, "Use a valid ZIP code."),
     homeowner: z.boolean({ error: "Homeowner status is required." }),
     maritalStatus: z.enum(maritalStatuses, { error: "Marital status is required." }),
-    preferredContact: z.enum(preferredContactMethods, { error: "Preferred contact is required." }),
+    preferredContact: optionalPreferredContact,
     residentStatus: z.enum(residentStatuses, { error: "Resident status is required." }),
     ownsRealEstate: z.boolean({ error: "Real estate ownership status is required." }),
     ownsBusiness: z.boolean({ error: "Business ownership status is required." }),
@@ -324,11 +332,11 @@ export class PortalProfileService {
     return this.buildResponse(entitlement, {
       ...session,
       dateOfBirth: new Date(`${input.primaryDateOfBirth}T00:00:00.000Z`),
-      clientType: input.clientType,
+      clientType: input.clientType ?? session.clientType,
       businessName: input.businessName ?? null,
       state: input.state,
-      incomeRange: input.incomeRange ?? null,
-      estimatedTaxPaidRange: input.estimatedTaxPaidRange ?? null
+      incomeRange: input.incomeRange ?? session.incomeRange,
+      estimatedTaxPaidRange: input.estimatedTaxPaidRange ?? session.estimatedTaxPaidRange
     }, profile);
   }
 

@@ -20,7 +20,6 @@ import {
   type PortalHouseholdMember,
   type PortalProfilePayload,
   type PortalProperty,
-  type PreferredContact,
   type ResidentStatus,
   type SavePortalProfileRequest,
   type TaxPaidRange
@@ -28,7 +27,12 @@ import {
 import { clearStoredPortalAccessToken, getCurrentPortalAccessToken, getPortalIdentity, signOutFromPortal } from "@/services/portal-auth";
 import { Button, Card, ErrorAlert, Input, LoadingOverlay, Select, StatusBadge, cn } from "@/components/ui";
 import { PortalDocumentsClient } from "@/components/portal-documents-client";
-import { clientTypeOptions, incomeRangeOptions, taxPaidRangeOptions } from "@/lib/assessment-context";
+import {
+  generatedPropertyLabel,
+  normalizePortalPropertyType,
+  portalPropertyTypeOptions,
+  preparePortalPropertiesForSave
+} from "@/lib/portal-properties";
 
 type DashboardTab = "personal" | "realEstate" | "business" | "documents";
 
@@ -109,7 +113,7 @@ const emptyProfileDraft = (): ProfileDraft => ({
 
 const emptyProperty = (): PortalProperty => ({
   category: "PRIMARY_HOME",
-  propertyType: "Residential",
+  propertyType: "Primary Residence",
   label: "",
   fullAddress: "",
   acquiredYear: new Date().getFullYear(),
@@ -306,6 +310,7 @@ export function PortalDashboardClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [readySubmitting, setReadySubmitting] = useState(false);
+  const [readyConfirmationOpen, setReadyConfirmationOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<Array<{ path: string; message: string }>>([]);
@@ -324,7 +329,10 @@ export function PortalDashboardClient() {
   const syncDashboard = useCallback((response: PortalDashboardResponse) => {
     setDashboard(response);
     setProfileDraft(draftFromDashboard(response));
-    setProperties(response.properties);
+    setProperties(response.properties.map((property) => ({
+      ...property,
+      propertyType: normalizePortalPropertyType(property.propertyType)
+    })));
     setBusinessInvestments(response.businessInvestments);
     setSelectedPropertyIndex((current) => response.properties.length === 0 ? null : Math.min(current ?? 0, response.properties.length - 1));
     setSelectedBusinessIndex((current) => response.businessInvestments.length === 0 ? null : Math.min(current ?? 0, response.businessInvestments.length - 1));
@@ -356,6 +364,15 @@ export function PortalDashboardClient() {
       }
     });
   }, [loadDashboard, router]);
+
+  useEffect(() => {
+    if (!readyConfirmationOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !readySubmitting) setReadyConfirmationOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [readyConfirmationOpen, readySubmitting]);
 
   const tabCompletion = useMemo(() => ({
     personal: dashboard?.completion.status === "COMPLETE",
@@ -390,7 +407,7 @@ export function PortalDashboardClient() {
     setError(null);
     setMessage(null);
     try {
-      syncDashboard(await savePortalProperties(accessToken, properties));
+      syncDashboard(await savePortalProperties(accessToken, preparePortalPropertiesForSave(properties)));
       setMessage("Real Estate Intake saved.");
     } catch (caught) {
       const apiError = caught as AssessmentApiError;
@@ -526,7 +543,7 @@ export function PortalDashboardClient() {
           <div className="flex flex-col items-start gap-2 sm:items-end">
             <div className="flex flex-wrap items-center gap-3">
               <StatusPill label={dashboard.assessmentStatus.label} />
-              <Button type="button" onClick={handleReadyForReview} disabled={readySubmitting || !canMarkReady}>
+              <Button type="button" onClick={() => setReadyConfirmationOpen(true)} disabled={readySubmitting || !canMarkReady}>
                 <Send aria-hidden size={16} />
                 {canMarkReady ? "Mark The Assessment Ready For Review" : dashboard.assessmentStatus.label}
               </Button>
@@ -599,24 +616,9 @@ export function PortalDashboardClient() {
                   <Input label="Date Of Birth" type="date" value={profileDraft.assessmentContext.primaryDateOfBirth} onChange={(event) => updateAssessmentContext({ primaryDateOfBirth: event.target.value })} required />
                   <Input label="Email" type="email" value={dashboard.primaryTaxpayer.email} disabled className="bg-slate-50" />
                   <Input label="Phone" value={dashboard.primaryTaxpayer.phone} disabled className="bg-slate-50" />
-                  <Select label="Client Type" value={profileDraft.assessmentContext.clientType} onChange={(event) => updateAssessmentContext({ clientType: event.target.value as ClientType | "" })} required>
-                    <option value="">Select</option>
-                    {clientTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </Select>
                   {showBusinessName ? (
                     <Input label="Business Name" autoComplete="organization" value={profileDraft.assessmentContext.businessName} onChange={(event) => updateAssessmentContext({ businessName: event.target.value })} required />
                   ) : null}
-                  <Select label="Estimated Annual Income" value={profileDraft.assessmentContext.incomeRange} onChange={(event) => updateAssessmentContext({ incomeRange: event.target.value as IncomeRange | "" })}>
-                    <option value="">Prefer not to say</option>
-                    {incomeRangeOptions.map((range) => <option key={range} value={range}>{range}</option>)}
-                  </Select>
-                  <Select label="Estimated Annual Tax Paid" value={profileDraft.assessmentContext.estimatedTaxPaidRange} onChange={(event) => updateAssessmentContext({ estimatedTaxPaidRange: event.target.value as TaxPaidRange | "" })}>
-                    <option value="">Prefer not to say</option>
-                    {taxPaidRangeOptions.map((range) => <option key={range.value} value={range.value}>{range.label}</option>)}
-                  </Select>
-                  <Select label="Preferred Contact" value={profileDraft.profile.preferredContact} onChange={(event) => updateProfile({ preferredContact: event.target.value as PreferredContact | "" })} required>
-                    <option value="">Select</option><option value="EMAIL">Email</option><option value="PHONE">Phone</option><option value="EITHER">Either</option>
-                  </Select>
                   <Input label="Home Address" value={profileDraft.profile.homeAddress} onChange={(event) => updateProfile({ homeAddress: event.target.value })} required />
                   <Input label="City" value={profileDraft.profile.city} onChange={(event) => updateProfile({ city: event.target.value })} required />
                   <Input label="State" maxLength={2} value={profileDraft.profile.state} onChange={(event) => updateProfile({ state: event.target.value.toUpperCase() })} required />
@@ -677,7 +679,7 @@ export function PortalDashboardClient() {
                         <button key={property.id ?? index} type="button" onClick={() => setSelectedPropertyIndex(index)} className={cn("focus-ring flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition", active ? "border-navy-800 bg-navy-800 text-white shadow-card" : "border-slate-200 bg-white text-navy-800 hover:border-gold-300 hover:bg-gold-50")}>
                           <span className={cn("grid size-11 shrink-0 place-items-center rounded-xl", active ? "bg-white/15 text-white" : "bg-navy-50 text-navy-800")}><Building2 aria-hidden size={20} /></span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-bold">{property.label || `Property ${index + 1}`}</span>
+                            <span className="block truncate text-sm font-bold">{generatedPropertyLabel(index)}</span>
                             <span className={cn("mt-1 block truncate text-xs", active ? "text-white/75" : "text-slate-500")}>{property.fullAddress || property.category || "Add property details"}</span>
                           </span>
                           <ChevronRight aria-hidden size={18} className={active ? "text-white" : "text-slate-400"} />
@@ -689,14 +691,15 @@ export function PortalDashboardClient() {
                 {selectedProperty && selectedPropertyIndex !== null ? (
                   <Card>
                     <div className="mb-5 flex items-center justify-between gap-4">
-                      <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">Selected Property</p><h3 className="mt-2 text-xl font-bold text-navy-800">{selectedProperty.label || `Property ${selectedPropertyIndex + 1}`}</h3></div>
+                      <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">Selected Property</p><h3 className="mt-2 text-xl font-bold text-navy-800">{generatedPropertyLabel(selectedPropertyIndex)}</h3></div>
                       <button type="button" className="focus-ring grid size-10 place-items-center rounded-full border border-red-200 text-red-700 hover:bg-red-50" onClick={() => removeProperty(selectedPropertyIndex)} aria-label={`Remove property ${selectedPropertyIndex + 1}`}><Trash2 aria-hidden size={16} /></button>
                     </div>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <Input label="Property ID / Label" value={selectedProperty.label} onChange={(event) => updateProperty(selectedPropertyIndex, { label: event.target.value })} required />
                       <Input label="Property Category" value={selectedProperty.category} onChange={(event) => updateProperty(selectedPropertyIndex, { category: event.target.value })} required />
                       <Input label="Use During Tax Year" value={selectedProperty.taxYearUse} onChange={(event) => updateProperty(selectedPropertyIndex, { taxYearUse: event.target.value })} required />
-                      <Input label="Property Type" value={selectedProperty.propertyType} onChange={(event) => updateProperty(selectedPropertyIndex, { propertyType: event.target.value })} required />
+                      <Select label="Property Type" value={selectedProperty.propertyType} onChange={(event) => updateProperty(selectedPropertyIndex, { propertyType: event.target.value })} required>
+                        {portalPropertyTypeOptions.map((propertyType) => <option key={propertyType} value={propertyType}>{propertyType}</option>)}
+                      </Select>
                       <Input label="Full Address" className="md:col-span-2" value={selectedProperty.fullAddress} onChange={(event) => updateProperty(selectedPropertyIndex, { fullAddress: event.target.value })} required />
                       <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="flex items-center justify-between gap-3">
@@ -809,6 +812,46 @@ export function PortalDashboardClient() {
 
           {activeTab === "documents" ? <PortalDocumentsClient embedded /> : null}
       </div>
+
+      {readyConfirmationOpen ? (
+        <div
+          className="fixed inset-0 z-40 grid place-items-center overflow-y-auto bg-navy-950/70 p-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target && !readySubmitting) setReadyConfirmationOpen(false);
+          }}
+        >
+          <section
+            className="my-6 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ready-review-title"
+            aria-describedby="ready-review-description"
+          >
+            <StatusBadge status="active">Final confirmation</StatusBadge>
+            <h2 id="ready-review-title" className="mt-4 text-2xl font-bold text-navy-800">Mark this assessment ready for review?</h2>
+            <p id="ready-review-description" className="mt-3 text-sm leading-6 text-slate-600">
+              Confirm that your Personal and Family Information is saved and that you have uploaded all documents you want Savians to review.
+            </p>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" autoFocus onClick={() => setReadyConfirmationOpen(false)} disabled={readySubmitting}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setReadyConfirmationOpen(false);
+                  void handleReadyForReview();
+                }}
+                disabled={readySubmitting}
+              >
+                <Send aria-hidden size={16} />
+                Confirm &amp; Mark Ready
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
