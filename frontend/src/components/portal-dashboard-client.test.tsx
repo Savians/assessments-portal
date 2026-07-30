@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   PortalBusinessInvestment,
@@ -161,6 +161,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -324,6 +325,28 @@ describe("PortalDashboardClient", () => {
     fireEvent.click(screen.getByRole("button", { name: /Document Upload Requirements/ }));
     expect(await screen.findByText("Document uploader")).toBeInTheDocument();
     expect(api.savePortalBusinessInvestments).toHaveBeenCalledWith("portal-token", []);
+  });
+
+  it("automatically dismisses success notifications after two seconds", async () => {
+    render(<PortalDashboardClient />);
+    expect(await screen.findByRole("heading", { name: "Kiro Savians" })).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    fireEvent.submit(saveButton.closest("form")!);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Personal and family information saved.")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(1999));
+    expect(screen.getByText("Personal and family information saved.")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByText("Personal and family information saved.")).not.toBeInTheDocument();
   });
 
   it.each([

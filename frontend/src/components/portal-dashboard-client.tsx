@@ -493,6 +493,7 @@ export function PortalDashboardClient() {
   const selectedBusiness =
     selectedBusinessIndex === null ? null : (businessInvestments[selectedBusinessIndex] ?? null);
   const uploadedCategorySet = new Set(dashboard?.documentSummary.uploadedCategories ?? []);
+  const successMessage = dashboard ? message : null;
 
   const syncDashboard = useCallback((response: PortalDashboardResponse) => {
     setDashboard(response);
@@ -598,6 +599,18 @@ export function PortalDashboardClient() {
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [readyConfirmationOpen, readySubmitting]);
+
+  useEffect(() => {
+    if (!successMessage) return;
+    const dismissTimer = window.setTimeout(
+      () =>
+        setMessage((currentMessage) =>
+          currentMessage === successMessage ? null : currentMessage
+        ),
+      2000
+    );
+    return () => window.clearTimeout(dismissTimer);
+  }, [successMessage]);
 
   const tabCompletion = {
     personal: dashboard?.completion.status === "COMPLETE",
