@@ -924,6 +924,11 @@ export function PortalDashboardClient() {
               <StatusPill label={dashboard.assessmentStatus.label} />
               <Button
                 type="button"
+                className={
+                  canMarkReady
+                    ? "bg-[#FFCC57] text-[#1A244D] shadow-sm hover:bg-[#e7bd52] focus-visible:ring-gold-500 disabled:bg-[#ffe3a0] disabled:text-[#59617e] disabled:opacity-70"
+                    : undefined
+                }
                 onClick={() => void openReadyConfirmation()}
                 disabled={readySubmitting || !canMarkReady}
               >

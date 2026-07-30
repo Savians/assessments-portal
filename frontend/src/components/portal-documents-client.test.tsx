@@ -4,8 +4,12 @@ import type { AssessmentDocument } from "@/services/assessment-api";
 import { PortalDocumentsClient } from "./portal-documents-client";
 
 const api = vi.hoisted(() => ({
+  completeDocumentUpload: vi.fn(),
+  createDocumentPreviewUrl: vi.fn(),
+  createDocumentUploadUrl: vi.fn(),
   loadDocuments: vi.fn(),
-  removeDocument: vi.fn()
+  removeDocument: vi.fn(),
+  uploadDocumentFile: vi.fn()
 }));
 
 const auth = vi.hoisted(() => ({
@@ -21,8 +25,19 @@ vi.mock("@/services/portal-auth", () => auth);
 
 beforeEach(() => {
   auth.getCurrentPortalAccessToken.mockResolvedValue("portal-token");
+  api.createDocumentPreviewUrl.mockResolvedValue({
+    documentId: "document-1",
+    previewUrl: "https://documents.example/preview",
+    expiresInSeconds: 300
+  });
+  api.createDocumentUploadUrl.mockResolvedValue({
+    documentId: "document-1",
+    uploadUrl: "https://documents.example/upload",
+    expiresInSeconds: 300
+  });
   api.loadDocuments.mockResolvedValue({ documents: [] });
   api.removeDocument.mockResolvedValue({ ok: true });
+  api.uploadDocumentFile.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -98,5 +113,42 @@ describe("PortalDocumentsClient category sequence", () => {
       expect(api.removeDocument).toHaveBeenCalledWith("portal-token", "document-1")
     );
     expect(onDocumentsChanged).toHaveBeenLastCalledWith([]);
+  });
+
+  it("keeps an uploaded document in the list without automatically opening its preview", async () => {
+    const uploadedDocument: AssessmentDocument = {
+      id: "document-1",
+      category: "TAX_RETURNS",
+      status: "UPLOADED",
+      originalName: "tax-return.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      createdAt: "2026-07-30T12:00:00.000Z",
+      updatedAt: "2026-07-30T12:00:00.000Z"
+    };
+    api.completeDocumentUpload.mockResolvedValue({ document: uploadedDocument });
+    const { container } = render(<PortalDocumentsClient embedded />);
+
+    await waitFor(() => expect(api.loadDocuments).toHaveBeenCalledWith("portal-token"));
+    const input = container.querySelector<HTMLInputElement>("input[type='file']");
+    expect(input).not.toBeNull();
+
+    fireEvent.change(input!, {
+      target: {
+        files: [new File(["tax return"], "tax-return.pdf", { type: "application/pdf" })]
+      }
+    });
+
+    expect(await screen.findByText("1 document uploaded to Prior Tax Returns Documents.")).toBeInTheDocument();
+    expect(screen.getByText("tax-return.pdf")).toBeInTheDocument();
+    expect(api.createDocumentPreviewUrl).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview tax-return.pdf" }));
+
+    await waitFor(() =>
+      expect(api.createDocumentPreviewUrl).toHaveBeenCalledWith("portal-token", "document-1")
+    );
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 });

@@ -251,8 +251,6 @@ export function PortalDocumentsClient({
       setDocuments(nextDocuments);
       onDocumentsChanged?.(nextDocuments);
       setMessage(`${pluralize(completedDocuments.length, "document")} uploaded to ${categoryLabels[category]}.`);
-      const firstCompletedDocument = completedDocuments[0];
-      if (firstCompletedDocument) await openPreview(firstCompletedDocument);
     } catch (caught) {
       setError(caught instanceof AssessmentApiError ? caught.message : "We could not upload this document.");
     } finally {

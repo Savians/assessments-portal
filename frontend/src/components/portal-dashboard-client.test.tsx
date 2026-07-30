@@ -350,6 +350,38 @@ describe("PortalDashboardClient", () => {
   });
 
   it.each([
+    { raw: "DOCUMENTS_SUBMITTED", label: "Ready for Review" },
+    { raw: "IN_PROGRESS", label: "In Progress" },
+    { raw: "COMPLETED", label: "Completed" }
+  ])("keeps client details editable while the assessment is $label", async (assessmentStatus) => {
+    const postSubmissionDashboard: PortalDashboardResponse = {
+      ...dashboard,
+      assessmentStatus
+    };
+    api.loadPortalDashboard.mockResolvedValue(postSubmissionDashboard);
+    api.savePortalProfile.mockResolvedValue(postSubmissionDashboard);
+
+    render(<PortalDashboardClient />);
+
+    const homeAddress = await screen.findByLabelText("Home Address");
+    expect(homeAddress).toBeEnabled();
+    fireEvent.change(homeAddress, { target: { value: "2 Updated Street" } });
+    fireEvent.submit(screen.getByRole("button", { name: "Save" }).closest("form")!);
+
+    await waitFor(() =>
+      expect(api.savePortalProfile).toHaveBeenCalledWith(
+        "portal-token",
+        expect.objectContaining({ homeAddress: "2 Updated Street" })
+      )
+    );
+    expect(
+      screen.queryByText(
+        "The assessment intake can no longer be changed after it is submitted for review."
+      )
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
     {
       ownershipField: "Homeowner?",
       profile: { homeowner: true, ownsRealEstate: false }
@@ -484,7 +516,16 @@ describe("PortalDashboardClient", () => {
   it("requires confirmation before marking the assessment ready", async () => {
     render(<PortalDashboardClient />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Submit for Review" }));
+    const submitForReview = await screen.findByRole("button", { name: "Submit for Review" });
+    expect(submitForReview).toHaveClass(
+      "bg-[#FFCC57]",
+      "text-[#1A244D]",
+      "hover:bg-[#e7bd52]",
+      "focus-visible:ring-gold-500",
+      "disabled:bg-[#ffe3a0]",
+      "disabled:text-[#59617e]"
+    );
+    fireEvent.click(submitForReview);
     await waitFor(() =>
       expect(api.savePortalProfile).toHaveBeenCalledWith(
         "portal-token",
