@@ -1,103 +1,1749 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, BriefcaseBusiness, Building2, Clock3, Eye, FileText, Plus, Save, ShieldCheck, Trash2, UserRound } from "lucide-react";
-import { Button, Card, ErrorAlert, Input, LoadingOverlay, Select, StatusBadge, cn } from "@/components/ui";
-import { loadAdminClient, loadAdminDocumentPreview, updateAdminBusinesses, updateAdminIdentity, updateAdminProfile, updateAdminProperties, updateAdminStatus, type AdminClientDetail } from "@/services/admin-api";
+import {
+  ArrowLeft,
+  BriefcaseBusiness,
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Eye,
+  FileText,
+  Plus,
+  Save,
+  Search,
+  ShieldCheck,
+  Trash2,
+  UploadCloud,
+  UserRound
+} from "lucide-react";
+import {
+  Button,
+  Card,
+  ErrorAlert,
+  Input,
+  LoadingOverlay,
+  Select,
+  StatusBadge,
+  cn
+} from "@/components/ui";
+import {
+  abortAdminDocumentUpload,
+  completeAdminDocumentUpload,
+  createAdminDocumentUploadUrl,
+  loadAdminClient,
+  loadAdminClients,
+  loadAdminDocumentPreview,
+  removeAdminDocument,
+  updateAdminBusinesses,
+  updateAdminIdentity,
+  updateAdminProfile,
+  updateAdminProperties,
+  updateAdminStatus,
+  type AdminClientDetail,
+  type AdminClientSummary
+} from "@/services/admin-api";
 import { getCurrentPortalAccessToken, getPortalIdentity } from "@/services/portal-auth";
-import type { PortalBusinessInvestment, PortalHouseholdMember, PortalProperty, SavePortalProfileRequest } from "@/services/assessment-api";
+import type {
+  DocumentCategory,
+  PortalBusinessInvestment,
+  PortalHouseholdMember,
+  PortalProperty,
+  SavePortalProfileRequest
+} from "@/services/assessment-api";
+import { AssessmentApiError, uploadDocumentFile } from "@/services/assessment-api";
 
 type Tab = "summary" | "personal" | "realEstate" | "business" | "documents" | "activity";
-const tabs: Array<[Tab, string, typeof UserRound]> = [["summary", "Summary", ShieldCheck], ["personal", "Personal & Family", UserRound], ["realEstate", "Real Estate", Building2], ["business", "Businesses & Entities", BriefcaseBusiness], ["documents", "Documents", FileText], ["activity", "History", Clock3]];
-const num = (value: unknown) => value === null || value === undefined || value === "" ? null : Number(value);
-const inputNum = (value: unknown) => value === null || value === undefined ? "" : String(value);
-const dateOnly = (value: string | null | undefined) => value ? value.slice(0, 10) : "";
-const boolValue = (value: boolean | null | undefined) => value === true ? "true" : value === false ? "false" : "";
-const boolFrom = (value: string) => value === "true" ? true : value === "false" ? false : null;
-const emptyMember = (): PortalHouseholdMember => ({ firstName: "", middleName: "", lastName: "", dateOfBirth: "", residentStatus: "", sex: "", fullTimeStudent: null, livesWithTaxpayer: null, notes: "" });
-const emptyProperty = (): PortalProperty => ({ category: "PRIMARY_HOME", propertyType: "Residential", label: "", fullAddress: "", acquiredYear: new Date().getFullYear(), acquiredMethod: "Purchase", purchaseBasis: null, currentFmv: null, landValue: null, mortgageBalance: null, monthlyPayment: null, mortgageCompany: null, interestRate: null, mortgageTermYears: null, taxYearUse: "Personal", rentalStartDate: null, daysRented: null, personalUseDays: null, projectedGrossRent: null, priorInterestPaid: null, priorTaxPaid: null, totalExpenses: null, owners: [], notes: null });
-const emptyBusiness = (): PortalBusinessInvestment => ({ entityName: "", entityType: "LLC", ownershipPercent: 100, taxClassification: "Partnership", priorYearIncomeLoss: null, priorYear: new Date().getFullYear() - 1, incomeLossYearMinus3: null, incomeLossYearMinus2: null, incomeLossYearMinus1: null, projectedCurrentYearIncomeLoss: null, active: true, notes: null });
-const emptyProfile = (detail: AdminClientDetail): SavePortalProfileRequest => ({ primaryDateOfBirth: dateOnly(detail.dateOfBirth), clientType: detail.clientType ?? "", businessName: detail.businessName ?? "", incomeRange: (detail.incomeRange ?? "") as SavePortalProfileRequest["incomeRange"], estimatedTaxPaidRange: (detail.estimatedTaxPaidRange ?? "") as SavePortalProfileRequest["estimatedTaxPaidRange"], homeAddress: "", city: "", state: detail.state ?? "", zip: "", homeowner: false, maritalStatus: "SINGLE", preferredContact: "EMAIL", residentStatus: "US_CITIZEN", ownsRealEstate: false, ownsBusiness: false, lastYearTaxableIncome: null, projectedTaxableIncome: null, lifeInsuranceInPlace: false, estatePlanningInPlace: false, majorPurchaseNotes: "", spouse: null, dependents: [] });
+const tabs: Array<[Tab, string, typeof UserRound]> = [
+  ["summary", "Summary", ShieldCheck],
+  ["personal", "Personal & Family", UserRound],
+  ["realEstate", "Real Estate", Building2],
+  ["business", "Businesses & Entities", BriefcaseBusiness],
+  ["documents", "Documents", FileText],
+  ["activity", "History", Clock3]
+];
+const maxDocumentSizeBytes = 25 * 1024 * 1024;
+const documentCategoryLabels: Record<DocumentCategory, string> = {
+  TAX_RETURNS: "Prior Tax Returns",
+  W2_INCOME: "W-2 Income",
+  OTHER_INCOME: "Other Income",
+  INVESTMENT_PORTFOLIO: "Investment Portfolio",
+  RETIREMENT_ACCOUNTS: "Retirement Accounts",
+  MORTGAGE_STATEMENTS: "Mortgage Statements",
+  BUSINESS_LLC_DOCUMENTS: "Business / LLC",
+  ESTATE_PLAN: "Estate Plan",
+  LIFE_INSURANCE: "Life Insurance",
+  OTHER_ASSESSMENT_DETAILS: "Other Assessment Details"
+};
+const sexGenderMarkerOptions = [
+  "Male",
+  "Female",
+  "Non-Binary",
+  "Other",
+  "Prefer Not to Say"
+] as const;
+const acquiredMethodOptions = [
+  "Purchase",
+  "Inheritance",
+  "Gift",
+  "1031 Exchange",
+  "Other"
+] as const;
+const entityTypeOptions = [
+  "LLC",
+  "Corporation",
+  "Partnership",
+  "Sole Proprietorship",
+  "Trust",
+  "Other"
+] as const;
+const taxClassificationOptions = [
+  "Disregarded Entity",
+  "Partnership",
+  "S Corporation",
+  "C Corporation",
+  "Sole Proprietorship",
+  "Other"
+] as const;
+const optionsWithLegacyValue = (options: readonly string[], currentValue: string) =>
+  currentValue && !options.includes(currentValue) ? [currentValue, ...options] : options;
+const num = (value: unknown) =>
+  value === null || value === undefined || value === "" ? null : Number(value);
+const inputNum = (value: unknown) => (value === null || value === undefined ? "" : String(value));
+const dateOnly = (value: string | null | undefined) => (value ? value.slice(0, 10) : "");
+const boolValue = (value: boolean | null | undefined) =>
+  value === true ? "true" : value === false ? "false" : "";
+const boolFrom = (value: string) => (value === "true" ? true : value === "false" ? false : null);
+const emptyMember = (): PortalHouseholdMember => ({
+  firstName: "",
+  middleName: "",
+  lastName: "",
+  dateOfBirth: "",
+  residentStatus: "",
+  sex: "",
+  fullTimeStudent: null,
+  livesWithTaxpayer: null,
+  notes: ""
+});
+const emptyProperty = (): PortalProperty => ({
+  category: "PRIMARY_HOME",
+  propertyType: "Residential",
+  label: "",
+  fullAddress: "",
+  acquiredYear: new Date().getFullYear(),
+  acquiredMethod: "Purchase",
+  purchaseBasis: null,
+  currentFmv: null,
+  landValue: null,
+  mortgageBalance: null,
+  monthlyPayment: null,
+  mortgageCompany: null,
+  interestRate: null,
+  mortgageTermYears: null,
+  taxYearUse: "Personal",
+  rentalStartDate: null,
+  daysRented: null,
+  personalUseDays: null,
+  projectedGrossRent: null,
+  priorInterestPaid: null,
+  priorTaxPaid: null,
+  totalExpenses: null,
+  owners: [],
+  notes: null
+});
+const emptyBusiness = (): PortalBusinessInvestment => ({
+  entityName: "",
+  entityType: "LLC",
+  ownershipPercent: 100,
+  taxClassification: "Partnership",
+  priorYearIncomeLoss: null,
+  priorYear: new Date().getFullYear() - 1,
+  incomeLossYearMinus3: null,
+  incomeLossYearMinus2: null,
+  incomeLossYearMinus1: null,
+  projectedCurrentYearIncomeLoss: null,
+  active: true,
+  notes: null
+});
+const emptyProfile = (detail: AdminClientDetail): SavePortalProfileRequest => ({
+  primaryDateOfBirth: dateOnly(detail.dateOfBirth),
+  clientType: detail.clientType ?? "",
+  businessName: detail.businessName ?? "",
+  incomeRange: (detail.incomeRange ?? "") as SavePortalProfileRequest["incomeRange"],
+  estimatedTaxPaidRange: (detail.estimatedTaxPaidRange ??
+    "") as SavePortalProfileRequest["estimatedTaxPaidRange"],
+  homeAddress: "",
+  city: "",
+  state: detail.state ?? "",
+  zip: "",
+  homeowner: false,
+  maritalStatus: "SINGLE",
+  preferredContact: "EMAIL",
+  residentStatus: "US_CITIZEN",
+  ownsRealEstate: false,
+  ownsBusiness: false,
+  lastYearTaxableIncome: null,
+  projectedTaxableIncome: null,
+  lifeInsuranceInPlace: false,
+  estatePlanningInPlace: false,
+  majorPurchaseNotes: "",
+  spouse: null,
+  dependents: []
+});
 
 function normalizeProperty(property: PortalProperty): PortalProperty {
-  return { ...property, acquiredYear: Number(property.acquiredYear), purchaseBasis: num(property.purchaseBasis), currentFmv: num(property.currentFmv), landValue: num(property.landValue), mortgageBalance: num(property.mortgageBalance), monthlyPayment: num(property.monthlyPayment), interestRate: num(property.interestRate), projectedGrossRent: num(property.projectedGrossRent), priorInterestPaid: num(property.priorInterestPaid), priorTaxPaid: num(property.priorTaxPaid), totalExpenses: num(property.totalExpenses), rentalStartDate: dateOnly(property.rentalStartDate) || null, owners: property.owners.map((owner) => ({ ...owner, ownershipPercentage: Number(owner.ownershipPercentage) })) };
+  return {
+    ...property,
+    acquiredYear: Number(property.acquiredYear),
+    purchaseBasis: num(property.purchaseBasis),
+    currentFmv: num(property.currentFmv),
+    landValue: num(property.landValue),
+    mortgageBalance: num(property.mortgageBalance),
+    monthlyPayment: num(property.monthlyPayment),
+    interestRate: num(property.interestRate),
+    projectedGrossRent: num(property.projectedGrossRent),
+    priorInterestPaid: num(property.priorInterestPaid),
+    priorTaxPaid: num(property.priorTaxPaid),
+    totalExpenses: num(property.totalExpenses),
+    rentalStartDate: dateOnly(property.rentalStartDate) || null,
+    owners: property.owners.map((owner) => ({
+      ...owner,
+      ownershipPercentage: Number(owner.ownershipPercentage)
+    }))
+  };
 }
 
 function normalizeBusiness(business: PortalBusinessInvestment): PortalBusinessInvestment {
-  return { ...business, ownershipPercent: Number(business.ownershipPercent), priorYearIncomeLoss: num(business.priorYearIncomeLoss), incomeLossYearMinus3: num(business.incomeLossYearMinus3), incomeLossYearMinus2: num(business.incomeLossYearMinus2), incomeLossYearMinus1: num(business.incomeLossYearMinus1), projectedCurrentYearIncomeLoss: num(business.projectedCurrentYearIncomeLoss) };
+  return {
+    ...business,
+    ownershipPercent: Number(business.ownershipPercent),
+    priorYearIncomeLoss: num(business.priorYearIncomeLoss),
+    incomeLossYearMinus3: num(business.incomeLossYearMinus3),
+    incomeLossYearMinus2: num(business.incomeLossYearMinus2),
+    incomeLossYearMinus1: num(business.incomeLossYearMinus1),
+    projectedCurrentYearIncomeLoss: num(business.projectedCurrentYearIncomeLoss)
+  };
 }
 
-function fullName(detail: AdminClientDetail) { return [detail.firstName, detail.middleName, detail.lastName].filter(Boolean).join(" "); }
-function FieldTextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="grid gap-2 text-sm font-medium text-navy-800"><span>{label}</span><textarea className="focus-ring min-h-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900" value={value} onChange={(event) => onChange(event.target.value)} /></label>; }
+function fullName(detail: { firstName: string; middleName?: string | null; lastName: string }) {
+  return [detail.firstName, detail.middleName, detail.lastName].filter(Boolean).join(" ");
+}
+function FieldTextArea({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-2 text-sm font-medium text-navy-800">
+      <span>{label}</span>
+      <textarea
+        className="focus-ring min-h-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
 
 export function AdminClientWorkspace({ sessionId }: { sessionId: string }) {
   const router = useRouter();
-  const [token, setToken] = useState(""), [detail, setDetail] = useState<AdminClientDetail | null>(null), [tab, setTab] = useState<Tab>("summary");
-  const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [error, setError] = useState<string | null>(null), [message, setMessage] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const [token, setToken] = useState(""),
+    [detail, setDetail] = useState<AdminClientDetail | null>(null),
+    [tab, setTab] = useState<Tab>("summary");
+  const [loading, setLoading] = useState(true),
+    [saving, setSaving] = useState(false),
+    [error, setError] = useState<string | null>(null),
+    [message, setMessage] = useState<string | null>(null);
   const [identity, setIdentity] = useState<Record<string, string>>({});
-  const [profile, setProfile] = useState<SavePortalProfileRequest | null>(null), [properties, setProperties] = useState<PortalProperty[]>([]), [businesses, setBusinesses] = useState<PortalBusinessInvestment[]>([]);
-  const [selectedProperty, setSelectedProperty] = useState(0), [selectedBusiness, setSelectedBusiness] = useState(0), [statusReason, setStatusReason] = useState("");
+  const [profile, setProfile] = useState<SavePortalProfileRequest | null>(null),
+    [properties, setProperties] = useState<PortalProperty[]>([]),
+    [businesses, setBusinesses] = useState<PortalBusinessInvestment[]>([]);
+  const [selectedProperty, setSelectedProperty] = useState(0),
+    [selectedBusiness, setSelectedBusiness] = useState(0),
+    [statusReason, setStatusReason] = useState("");
+  const [statusTarget, setStatusTarget] = useState<"" | "IN_PROGRESS" | "COMPLETED">("");
+  const [clientSearch, setClientSearch] = useState(""),
+    [searchResults, setSearchResults] = useState<AdminClientSummary[] | null>(null),
+    [searching, setSearching] = useState(false);
+  const [documentCategory, setDocumentCategory] = useState<DocumentCategory>(
+      "OTHER_ASSESSMENT_DETAILS"
+    ),
+    [uploadingDocument, setUploadingDocument] = useState(false),
+    [removingDocumentId, setRemovingDocumentId] = useState<string | null>(null);
 
   const sync = useCallback((next: AdminClientDetail) => {
-    setDetail(next); setIdentity({ firstName: next.firstName, middleName: next.middleName ?? "", lastName: next.lastName, email: next.normalizedEmail, phone: next.phone, dateOfBirth: dateOnly(next.dateOfBirth), clientType: next.clientType ?? "", businessName: next.businessName ?? "", state: next.state ?? "", incomeRange: next.incomeRange ?? "", estimatedTaxPaidRange: next.estimatedTaxPaidRange ?? "" });
+    setDetail(next);
+    setStatusTarget(
+      next.status === "IN_PROGRESS" || next.status === "COMPLETED" ? next.status : ""
+    );
+    setIdentity({
+      firstName: next.firstName,
+      middleName: next.middleName ?? "",
+      lastName: next.lastName,
+      email: next.normalizedEmail,
+      phone: next.phone,
+      dateOfBirth: dateOnly(next.dateOfBirth),
+      clientType: next.clientType ?? "",
+      businessName: next.businessName ?? "",
+      state: next.state ?? "",
+      incomeRange: next.incomeRange ?? "",
+      estimatedTaxPaidRange: next.estimatedTaxPaidRange ?? ""
+    });
     const spouse = next.profile?.householdMembers.find((member) => member.memberType === "SPOUSE");
-    const dependents = next.profile?.householdMembers.filter((member) => member.memberType === "DEPENDENT") ?? [];
-    setProfile(next.profile ? { primaryDateOfBirth: dateOnly(next.dateOfBirth), clientType: next.clientType ?? "", businessName: next.businessName ?? "", incomeRange: (next.incomeRange ?? "") as SavePortalProfileRequest["incomeRange"], estimatedTaxPaidRange: (next.estimatedTaxPaidRange ?? "") as SavePortalProfileRequest["estimatedTaxPaidRange"], homeAddress: next.profile.homeAddress, city: next.profile.city, state: next.profile.state, zip: next.profile.zip, homeowner: next.profile.homeowner, maritalStatus: next.profile.maritalStatus, preferredContact: (next.profile.preferredContact ?? "") as SavePortalProfileRequest["preferredContact"], residentStatus: next.profile.residentStatus, ownsRealEstate: next.profile.ownsRealEstate, ownsBusiness: next.profile.ownsBusiness, lastYearTaxableIncome: num(next.profile.lastYearTaxableIncome), projectedTaxableIncome: num(next.profile.projectedTaxableIncome), lifeInsuranceInPlace: next.profile.lifeInsuranceInPlace, estatePlanningInPlace: next.profile.estatePlanningInPlace, majorPurchaseNotes: next.profile.majorPurchaseNotes ?? "", spouse: spouse ? { ...spouse, dateOfBirth: dateOnly(spouse.dateOfBirth) } : null, dependents: dependents.map((member) => ({ ...member, dateOfBirth: dateOnly(member.dateOfBirth) })) } : null);
-    setProperties((next.profile?.properties ?? []).map((item) => normalizeProperty(item))); setBusinesses((next.profile?.businessInvestments ?? []).map(normalizeBusiness));
+    const dependents =
+      next.profile?.householdMembers.filter((member) => member.memberType === "DEPENDENT") ?? [];
+    setProfile(
+      next.profile
+        ? {
+            primaryDateOfBirth: dateOnly(next.dateOfBirth),
+            clientType: next.clientType ?? "",
+            businessName: next.businessName ?? "",
+            incomeRange: (next.incomeRange ?? "") as SavePortalProfileRequest["incomeRange"],
+            estimatedTaxPaidRange: (next.estimatedTaxPaidRange ??
+              "") as SavePortalProfileRequest["estimatedTaxPaidRange"],
+            homeAddress: next.profile.homeAddress,
+            city: next.profile.city,
+            state: next.profile.state,
+            zip: next.profile.zip,
+            homeowner: next.profile.homeowner,
+            maritalStatus: next.profile.maritalStatus,
+            preferredContact: (next.profile.preferredContact ??
+              "") as SavePortalProfileRequest["preferredContact"],
+            residentStatus: next.profile.residentStatus,
+            ownsRealEstate: next.profile.ownsRealEstate,
+            ownsBusiness: next.profile.ownsBusiness,
+            lastYearTaxableIncome: num(next.profile.lastYearTaxableIncome),
+            projectedTaxableIncome: num(next.profile.projectedTaxableIncome),
+            lifeInsuranceInPlace: next.profile.lifeInsuranceInPlace,
+            estatePlanningInPlace: next.profile.estatePlanningInPlace,
+            majorPurchaseNotes: next.profile.majorPurchaseNotes ?? "",
+            spouse: spouse ? { ...spouse, dateOfBirth: dateOnly(spouse.dateOfBirth) } : null,
+            dependents: dependents.map((member) => ({
+              ...member,
+              dateOfBirth: dateOnly(member.dateOfBirth)
+            }))
+          }
+        : null
+    );
+    setProperties((next.profile?.properties ?? []).map((item) => normalizeProperty(item)));
+    setBusinesses((next.profile?.businessInvestments ?? []).map(normalizeBusiness));
   }, []);
-  const load = useCallback(async (accessToken: string) => { setLoading(true); setError(null); try { sync(await loadAdminClient(accessToken, sessionId)); } catch (caught) { setError(caught instanceof Error ? caught.message : "We could not load this client."); } finally { setLoading(false); } }, [sessionId, sync]);
-  useEffect(() => { getCurrentPortalAccessToken().then((accessToken) => { if (!accessToken) { router.replace("/login"); return; } const role = getPortalIdentity(accessToken).role; if (role !== "ADMIN" && role !== "SUPER_ADMIN") { router.replace("/portal/dashboard"); return; } setToken(accessToken); void load(accessToken); }); }, [load, router]);
+  const load = useCallback(
+    async (accessToken: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        sync(await loadAdminClient(accessToken, sessionId));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "We could not load this client.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [sessionId, sync]
+  );
+  useEffect(() => {
+    getCurrentPortalAccessToken().then((accessToken) => {
+      if (!accessToken) {
+        router.replace("/login");
+        return;
+      }
+      const role = getPortalIdentity(accessToken).role;
+      if (role !== "ADMIN" && role !== "SUPER_ADMIN") {
+        router.replace("/portal/dashboard");
+        return;
+      }
+      setToken(accessToken);
+      void load(accessToken);
+    });
+  }, [load, router]);
+  useEffect(() => {
+    const requested = searchParams.get("tab");
+    if (tabs.some(([id]) => id === requested)) setTab(requested as Tab);
+  }, [searchParams]);
 
-  const canChangeStatus = detail && ["DOCUMENTS_SUBMITTED", "IN_PROGRESS", "COMPLETED"].includes(detail.status);
-  const stat = useMemo(() => detail ? [{ label: "Assessment Year", value: detail.assessmentYear }, { label: "Status", value: detail.statusLabel }, { label: "Invoice", value: detail.qbInvoiceNumber ?? "Not created" }, { label: "Documents", value: detail.documents.length }] : [], [detail]);
-  async function run(action: () => Promise<AdminClientDetail>, success: string) { setSaving(true); setError(null); setMessage(null); try { sync(await action()); setMessage(success); } catch (caught) { setError(caught instanceof Error ? caught.message : "The admin update failed."); } finally { setSaving(false); } }
-  async function preview(documentId: string) { try { const result = await loadAdminDocumentPreview(token, documentId); window.open(result.previewUrl, "_blank", "noopener,noreferrer"); } catch (caught) { setError(caught instanceof Error ? caught.message : "We could not preview this document."); } }
+  const canChangeStatus =
+    detail && ["DOCUMENTS_SUBMITTED", "IN_PROGRESS", "COMPLETED"].includes(detail.status);
+  const stat = useMemo(
+    () =>
+      detail
+        ? [
+            { label: "Assessment Year", value: detail.assessmentYear },
+            { label: "Status", value: detail.statusLabel },
+            {
+              label: "Invoice",
+              value:
+                detail.qbInvoiceNumber ??
+                detail.qbInvoiceId ??
+                (detail.paymentVerifiedAt ? "Paid" : "Not created")
+            },
+            { label: "Documents", value: detail.documents.length }
+          ]
+        : [],
+    [detail]
+  );
+  async function run(action: () => Promise<AdminClientDetail>, success: string) {
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      sync(await action());
+      setMessage(success);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The admin update failed.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function preview(documentId: string) {
+    const previewWindow = window.open("about:blank", "_blank");
+    if (!previewWindow) {
+      setError("Allow pop-ups for this site to preview client documents.");
+      return;
+    }
+    previewWindow.opener = null;
+    try {
+      const result = await loadAdminDocumentPreview(token, documentId);
+      previewWindow.location.replace(result.previewUrl);
+    } catch (caught) {
+      previewWindow.close();
+      setError(caught instanceof Error ? caught.message : "We could not preview this document.");
+    }
+  }
+  async function searchClients(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = clientSearch.trim();
+    if (!query) {
+      setSearchResults(null);
+      return;
+    }
+    setSearching(true);
+    setError(null);
+    try {
+      const result = await loadAdminClients(token, { search: query, page: 1, pageSize: 10 });
+      setSearchResults(result.items);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "We could not search for clients.");
+    } finally {
+      setSearching(false);
+    }
+  }
+  function openClient(nextSessionId: string) {
+    setSearchResults(null);
+    router.push(`/admin/clients/${nextSessionId}`);
+  }
+  async function applyStatus() {
+    if (!statusTarget) return;
+    const success =
+      statusTarget === "IN_PROGRESS"
+        ? "Assessment moved to In Progress."
+        : "Assessment marked Completed.";
+    await run(() => updateAdminStatus(token, sessionId, statusTarget, statusReason), success);
+  }
+  async function uploadDocuments(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) return;
+    const oversized = files.find((file) => file.size > maxDocumentSizeBytes);
+    if (oversized) {
+      setError(`${oversized.name} is larger than 25 MB. Please upload a smaller file.`);
+      return;
+    }
+    setUploadingDocument(true);
+    setError(null);
+    setMessage(null);
+    let completedCount = 0;
+    let failedFileName = "";
+    try {
+      for (const file of files) {
+        failedFileName = file.name;
+        const prepared = await createAdminDocumentUploadUrl(token, sessionId, {
+          category: documentCategory,
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+          sizeBytes: file.size
+        });
+        const cleanUpPendingDocument = async (retainedInS3: boolean) => {
+          try {
+            await abortAdminDocumentUpload(token, sessionId, prepared.documentId, retainedInS3);
+          } catch {
+            // The failed pending record stays hidden for server-side reconciliation.
+          }
+        };
+        try {
+          await uploadDocumentFile(prepared.uploadUrl, file);
+        } catch (caught) {
+          if (caught instanceof AssessmentApiError) await cleanUpPendingDocument(false);
+          throw caught;
+        }
+        try {
+          await completeAdminDocumentUpload(token, sessionId, {
+            documentId: prepared.documentId,
+            sizeBytes: file.size
+          });
+        } catch (caught) {
+          // A server-declared failure is safe to clean up. A network failure is ambiguous,
+          // so the refresh below determines whether the upload completed.
+          if (caught instanceof AssessmentApiError) await cleanUpPendingDocument(true);
+          throw caught;
+        }
+        completedCount += 1;
+      }
+      setMessage(
+        `${files.length} document${files.length === 1 ? "" : "s"} uploaded to ${documentCategoryLabels[documentCategory]}.`
+      );
+    } catch (caught) {
+      const reason =
+        caught instanceof Error ? caught.message : "We could not upload this document.";
+      setError(
+        `${completedCount > 0 ? `${completedCount} document${completedCount === 1 ? "" : "s"} uploaded successfully. ` : ""}${failedFileName || "The next document"} could not be uploaded. ${reason}`
+      );
+    } finally {
+      try {
+        sync(await loadAdminClient(token, sessionId));
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The upload finished, but we could not refresh the document list."
+        );
+      }
+      setUploadingDocument(false);
+    }
+  }
+  async function removeDocument(documentId: string, originalName: string) {
+    if (!window.confirm(`Remove ${originalName} from this client?`)) return;
+    setRemovingDocumentId(documentId);
+    setError(null);
+    setMessage(null);
+    try {
+      await removeAdminDocument(token, sessionId, documentId);
+      sync(await loadAdminClient(token, sessionId));
+      setMessage(`${originalName} was removed. The retained audit copy remains protected.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "We could not remove this document.");
+    } finally {
+      setRemovingDocumentId(null);
+    }
+  }
   if (loading) return <LoadingOverlay label="Loading client workspace" />;
-  if (!detail) return <section className="page-shell min-h-[70vh] py-10"><ErrorAlert>{error ?? "Client not found."}</ErrorAlert></section>;
+  if (!detail)
+    return (
+      <section className="page-shell min-h-[70vh] py-10">
+        <ErrorAlert>{error ?? "Client not found."}</ErrorAlert>
+      </section>
+    );
 
-  return <section className="page-shell min-h-[80vh] py-8 sm:py-10">
-    <Link className="focus-ring mb-4 inline-flex items-center gap-2 text-sm font-semibold text-navy-700 hover:underline" href="/admin/dashboard"><ArrowLeft aria-hidden size={16} />Back To All Clients</Link>
-    <Card className="bg-gradient-to-r from-white to-navy-50"><div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-center"><div><StatusBadge status="active">Client Workspace</StatusBadge><h1 className="mt-3 text-3xl font-bold text-navy-800">{fullName(detail)}</h1><p className="mt-2 text-slate-600">{detail.normalizedEmail} · {detail.phone} · {detail.assessmentYear} assessment</p></div><div className="flex flex-col gap-3 sm:flex-row sm:items-end"><div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Client Status</p><StatusBadge status={detail.statusLabel === "Completed" || detail.statusLabel === "Ready for Review" ? "complete" : "active"}>{detail.statusLabel}</StatusBadge></div><Input label="Status Note (Optional)" value={statusReason} onChange={(event) => setStatusReason(event.target.value)} /><Button disabled={!canChangeStatus || saving || detail.status === "IN_PROGRESS"} onClick={() => void run(() => updateAdminStatus(token, sessionId, "IN_PROGRESS", statusReason), "Assessment moved to In Progress.")}>In Progress</Button><Button disabled={!canChangeStatus || saving || detail.status === "COMPLETED"} onClick={() => void run(() => updateAdminStatus(token, sessionId, "COMPLETED", statusReason), "Assessment marked Completed.")}>Completed</Button></div></div></Card>
-    {error ? <div className="mt-5"><ErrorAlert>{error}</ErrorAlert></div> : null}{message ? <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{message}</div> : null}
-    <div className="mt-5 grid gap-2 rounded-2xl border border-slate-200 bg-white p-2 sm:grid-cols-3 xl:grid-cols-6">{tabs.map(([id, label, Icon]) => <button key={id} type="button" onClick={() => setTab(id)} className={cn("focus-ring flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-sm font-bold", tab === id ? "bg-navy-800 text-white" : "text-navy-700 hover:bg-navy-50")}><Icon aria-hidden size={17} />{label}</button>)}</div>
+  return (
+    <section className="page-shell min-h-[80vh] py-8 sm:py-10">
+      {(uploadingDocument || removingDocumentId) && (
+        <LoadingOverlay
+          label={uploadingDocument ? "Uploading client documents" : "Removing client document"}
+        />
+      )}
+      <div className="mb-4 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+        <Link
+          className="focus-ring inline-flex items-center gap-2 text-sm font-semibold text-navy-700 hover:underline"
+          href="/admin/dashboard"
+        >
+          <ArrowLeft aria-hidden size={16} />
+          Back To All Clients
+        </Link>
+        <form
+          className="grid gap-2 sm:grid-cols-[minmax(260px,420px)_auto]"
+          onSubmit={searchClients}
+        >
+          <Input
+            label="Search Clients"
+            placeholder="Name, email, phone, or invoice"
+            value={clientSearch}
+            onChange={(event) => {
+              setClientSearch(event.target.value);
+              if (!event.target.value.trim()) setSearchResults(null);
+            }}
+          />
+          <Button className="self-end" type="submit" disabled={searching}>
+            <Search aria-hidden size={16} />
+            {searching ? "Searching..." : "Search"}
+          </Button>
+        </form>
+      </div>
+      {searchResults ? (
+        <Card className="mb-4 p-3">
+          <div className="grid gap-2" aria-label="Client search results">
+            {searchResults.map((client) => (
+              <button
+                key={client.id}
+                type="button"
+                className="focus-ring flex items-center justify-between gap-4 rounded-xl px-4 py-3 text-left hover:bg-navy-50"
+                onClick={() => openClient(client.id)}
+              >
+                <span>
+                  <span className="block font-semibold text-navy-800">{fullName(client)}</span>
+                  <span className="mt-1 block text-xs text-slate-500">
+                    {client.normalizedEmail} · {client.assessmentYear} assessment
+                  </span>
+                </span>
+                <ChevronRight aria-hidden className="shrink-0 text-navy-600" size={18} />
+              </button>
+            ))}
+            {searchResults.length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-slate-500">
+                No clients match that search.
+              </p>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
+      <Card className="bg-gradient-to-r from-white to-navy-50">
+        <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-center">
+          <div>
+            <StatusBadge status="active">Client Workspace</StatusBadge>
+            <div className="mt-3 flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-10 px-3"
+                disabled={!detail.navigation.previous}
+                onClick={() =>
+                  detail.navigation.previous && openClient(detail.navigation.previous.id)
+                }
+                aria-label={
+                  detail.navigation.previous
+                    ? `Previous client: ${fullName(detail.navigation.previous)}`
+                    : "No previous client"
+                }
+              >
+                <ChevronLeft aria-hidden size={18} />
+              </Button>
+              <h1 className="text-3xl font-bold text-navy-800">{fullName(detail)}</h1>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-10 px-3"
+                disabled={!detail.navigation.next}
+                onClick={() => detail.navigation.next && openClient(detail.navigation.next.id)}
+                aria-label={
+                  detail.navigation.next
+                    ? `Next client: ${fullName(detail.navigation.next)}`
+                    : "No next client"
+                }
+              >
+                <ChevronRight aria-hidden size={18} />
+              </Button>
+            </div>
+            <p className="mt-2 text-slate-600">
+              {detail.normalizedEmail} · {detail.phone} · {detail.assessmentYear} assessment
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Client Status
+              </p>
+              <StatusBadge
+                status={
+                  detail.statusLabel === "Completed" || detail.statusLabel === "Ready for Review"
+                    ? "complete"
+                    : "active"
+                }
+              >
+                {detail.statusLabel}
+              </StatusBadge>
+            </div>
+            <Input
+              label="Status Note (Optional)"
+              value={statusReason}
+              onChange={(event) => setStatusReason(event.target.value)}
+            />
+            <Select
+              label="Change Status"
+              value={statusTarget}
+              disabled={!canChangeStatus || saving}
+              onChange={(event) =>
+                setStatusTarget(event.target.value as "" | "IN_PROGRESS" | "COMPLETED")
+              }
+            >
+              <option value="">Select status</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="COMPLETED">Completed</option>
+            </Select>
+            <Button
+              disabled={
+                !canChangeStatus || saving || !statusTarget || detail.status === statusTarget
+              }
+              onClick={() => void applyStatus()}
+            >
+              Update Status
+            </Button>
+          </div>
+        </div>
+      </Card>
+      {error ? (
+        <div className="mt-5">
+          <ErrorAlert>{error}</ErrorAlert>
+        </div>
+      ) : null}
+      {message ? (
+        <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+          {message}
+        </div>
+      ) : null}
+      <div className="mt-5 grid gap-2 rounded-2xl border border-slate-200 bg-white p-2 sm:grid-cols-3 xl:grid-cols-6">
+        {tabs.map(([id, label, Icon]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={cn(
+              "focus-ring flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-sm font-bold",
+              tab === id ? "bg-navy-800 text-white" : "text-navy-700 hover:bg-navy-50"
+            )}
+          >
+            <Icon aria-hidden size={17} />
+            {label}
+          </button>
+        ))}
+      </div>
 
-    {tab === "summary" ? <div className="mt-5 grid gap-5"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{stat.map((item) => <Card key={item.label}><p className="text-sm text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-bold text-navy-800">{item.value}</p></Card>)}</div><Card><h2 className="text-xl font-bold text-navy-800">Protected System Records</h2><p className="mt-2 text-sm text-slate-600">These accounting and legal fields are visible for operations but deliberately read-only.</p><dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Data label="QuickBooks Customer ID" value={detail.qbCustomerId} /><Data label="QuickBooks Invoice ID" value={detail.qbInvoiceId} /><Data label="Agreement Signed" value={detail.agreementSignedAt ? new Date(detail.agreementSignedAt).toLocaleString() : null} /><Data label="Payment Verified" value={detail.paymentVerifiedAt ? new Date(detail.paymentVerifiedAt).toLocaleString() : null} /></dl></Card></div> : null}
+      {tab === "summary" ? (
+        <div className="mt-5 grid gap-5">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {stat.map((item) => (
+              <Card key={item.label}>
+                <p className="text-sm text-slate-500">{item.label}</p>
+                <p className="mt-2 text-2xl font-bold text-navy-800">{item.value}</p>
+              </Card>
+            ))}
+          </div>
+          <Card>
+            <h2 className="text-xl font-bold text-navy-800">Protected System Records</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              These accounting and legal fields are visible for operations but deliberately
+              read-only.
+            </p>
+            <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Data label="QuickBooks Customer ID" value={detail.qbCustomerId} />
+              <Data label="QuickBooks Invoice ID" value={detail.qbInvoiceId} />
+              <Data
+                label="Agreement Signed"
+                value={
+                  detail.agreementSignedAt
+                    ? new Date(detail.agreementSignedAt).toLocaleString()
+                    : null
+                }
+              />
+              <Data
+                label="Payment Verified"
+                value={
+                  detail.paymentVerifiedAt
+                    ? new Date(detail.paymentVerifiedAt).toLocaleString()
+                    : null
+                }
+              />
+            </dl>
+          </Card>
+        </div>
+      ) : null}
 
-    {tab === "personal" ? <div className="mt-5 grid gap-5">
-      <form onSubmit={(event) => { event.preventDefault(); void run(() => updateAdminIdentity(token, sessionId, identity), "Client identity and contact details saved."); }}><Card><SectionHeader title="Primary Client Information" saving={saving} /><div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3"><TextField label="First Name" name="firstName" state={identity} setState={setIdentity} /><TextField label="Middle Name" name="middleName" state={identity} setState={setIdentity} /><TextField label="Last Name" name="lastName" state={identity} setState={setIdentity} /><TextField label="Email" name="email" type="email" state={identity} setState={setIdentity} /><TextField label="Phone" name="phone" state={identity} setState={setIdentity} /><TextField label="Date Of Birth" name="dateOfBirth" type="date" state={identity} setState={setIdentity} /><Select label="Client Type" value={identity.clientType} onChange={(event) => setIdentity((current) => ({ ...current, clientType: event.target.value }))}><option value="" disabled>Select client type</option>{["INDIVIDUAL", "BUSINESS_OWNER", "REAL_ESTATE_INVESTOR", "W2_HIGH_EARNER", "OTHER"].map((value) => <option key={value}>{value}</option>)}</Select><TextField label="Business Name" name="businessName" state={identity} setState={setIdentity} /><TextField label="State" name="state" state={identity} setState={setIdentity} /><TextField label="Income Range" name="incomeRange" state={identity} setState={setIdentity} /><TextField label="Estimated Tax Paid Range" name="estimatedTaxPaidRange" state={identity} setState={setIdentity} /></div></Card></form>
-      {profile ? <ProfileEditor profile={profile} setProfile={setProfile} saving={saving} onSave={() => void run(() => updateAdminProfile(token, sessionId, profile), "Personal and family intake saved.")} /> : <Card><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><h2 className="text-xl font-bold text-navy-800">No Intake Profile Yet</h2><p className="mt-2 text-slate-600">Start a protected profile so the admin can enter personal, household, real-estate, and business details for this client.</p></div><Button type="button" onClick={() => setProfile(emptyProfile(detail))}><Plus aria-hidden size={16} />Start Profile Entry</Button></div></Card>}
-    </div> : null}
+      {tab === "personal" ? (
+        <div className="mt-5 grid gap-5">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void run(
+                () => updateAdminIdentity(token, sessionId, identity),
+                "Client identity and contact details saved."
+              );
+            }}
+          >
+            <Card>
+              <SectionHeader title="Primary Client Information" saving={saving} />
+              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <TextField
+                  label="First Name"
+                  name="firstName"
+                  state={identity}
+                  setState={setIdentity}
+                />
+                <TextField
+                  label="Middle Name"
+                  name="middleName"
+                  state={identity}
+                  setState={setIdentity}
+                />
+                <TextField
+                  label="Last Name"
+                  name="lastName"
+                  state={identity}
+                  setState={setIdentity}
+                />
+                <TextField
+                  label="Email"
+                  name="email"
+                  type="email"
+                  state={identity}
+                  setState={setIdentity}
+                />
+                <TextField label="Phone" name="phone" state={identity} setState={setIdentity} />
+                <TextField
+                  label="Date Of Birth"
+                  name="dateOfBirth"
+                  type="date"
+                  state={identity}
+                  setState={setIdentity}
+                />
+                <Select
+                  label="Client Type"
+                  value={identity.clientType}
+                  onChange={(event) =>
+                    setIdentity((current) => ({ ...current, clientType: event.target.value }))
+                  }
+                >
+                  <option value="" disabled>
+                    Select client type
+                  </option>
+                  {[
+                    "INDIVIDUAL",
+                    "BUSINESS_OWNER",
+                    "REAL_ESTATE_INVESTOR",
+                    "W2_HIGH_EARNER",
+                    "OTHER"
+                  ].map((value) => (
+                    <option key={value}>{value}</option>
+                  ))}
+                </Select>
+                <TextField
+                  label="Business Name"
+                  name="businessName"
+                  state={identity}
+                  setState={setIdentity}
+                />
+                <TextField label="State" name="state" state={identity} setState={setIdentity} />
+                <TextField
+                  label="Income Range"
+                  name="incomeRange"
+                  state={identity}
+                  setState={setIdentity}
+                />
+                <TextField
+                  label="Estimated Tax Paid Range"
+                  name="estimatedTaxPaidRange"
+                  state={identity}
+                  setState={setIdentity}
+                />
+              </div>
+            </Card>
+          </form>
+          {profile ? (
+            <ProfileEditor
+              profile={profile}
+              setProfile={setProfile}
+              saving={saving}
+              onSave={() =>
+                void run(
+                  () => updateAdminProfile(token, sessionId, profile),
+                  "Personal and family intake saved."
+                )
+              }
+            />
+          ) : (
+            <Card>
+              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                <div>
+                  <h2 className="text-xl font-bold text-navy-800">No Intake Profile Yet</h2>
+                  <p className="mt-2 text-slate-600">
+                    Start a protected profile so the admin can enter personal, household,
+                    real-estate, and business details for this client.
+                  </p>
+                </div>
+                <Button type="button" onClick={() => setProfile(emptyProfile(detail))}>
+                  <Plus aria-hidden size={16} />
+                  Start Profile Entry
+                </Button>
+              </div>
+            </Card>
+          )}
+        </div>
+      ) : null}
 
-    {tab === "realEstate" ? <CollectionEditor title="Real Estate Intake" addLabel="Add Property" items={properties} selected={selectedProperty} setSelected={setSelectedProperty} itemLabel={(item, index) => item.label || `Property ${index + 1}`} onAdd={() => { setProperties((items) => [...items, emptyProperty()]); setSelectedProperty(properties.length); }} onRemove={(index) => { setProperties((items) => items.filter((_, i) => i !== index)); setSelectedProperty(0); }} saving={saving} onSave={() => void run(() => updateAdminProperties(token, sessionId, properties), "Real estate intake saved.")}>{properties[selectedProperty] ? <PropertyFields item={properties[selectedProperty]} onChange={(next) => setProperties((items) => items.map((item, i) => i === selectedProperty ? next : item))} /> : null}</CollectionEditor> : null}
-    {tab === "business" ? <CollectionEditor title="Business And Entity Intake" addLabel="Add Entity" items={businesses} selected={selectedBusiness} setSelected={setSelectedBusiness} itemLabel={(item, index) => item.entityName || `Entity ${index + 1}`} onAdd={() => { setBusinesses((items) => [...items, emptyBusiness()]); setSelectedBusiness(businesses.length); }} onRemove={(index) => { setBusinesses((items) => items.filter((_, i) => i !== index)); setSelectedBusiness(0); }} saving={saving} onSave={() => void run(() => updateAdminBusinesses(token, sessionId, businesses), "Business and entity intake saved.")}>{businesses[selectedBusiness] ? <BusinessFields item={businesses[selectedBusiness]} year={detail.assessmentYear} onChange={(next) => setBusinesses((items) => items.map((item, i) => i === selectedBusiness ? next : item))} /> : null}</CollectionEditor> : null}
+      {tab === "realEstate" ? (
+        <CollectionEditor
+          title="Real Estate Intake"
+          addLabel="Add Property"
+          items={properties}
+          selected={selectedProperty}
+          setSelected={setSelectedProperty}
+          itemLabel={(item, index) => item.label || `Property ${index + 1}`}
+          onAdd={() => {
+            setProperties((items) => [...items, emptyProperty()]);
+            setSelectedProperty(properties.length);
+          }}
+          onRemove={(index) => {
+            setProperties((items) => items.filter((_, i) => i !== index));
+            setSelectedProperty(0);
+          }}
+          saving={saving}
+          onSave={() =>
+            void run(
+              () => updateAdminProperties(token, sessionId, properties),
+              "Real estate intake saved."
+            )
+          }
+        >
+          {properties[selectedProperty] ? (
+            <PropertyFields
+              item={properties[selectedProperty]}
+              onChange={(next) =>
+                setProperties((items) =>
+                  items.map((item, i) => (i === selectedProperty ? next : item))
+                )
+              }
+            />
+          ) : null}
+        </CollectionEditor>
+      ) : null}
+      {tab === "business" ? (
+        <CollectionEditor
+          title="Business And Entity Intake"
+          addLabel="Add Entity"
+          items={businesses}
+          selected={selectedBusiness}
+          setSelected={setSelectedBusiness}
+          itemLabel={(item, index) => item.entityName || `Entity ${index + 1}`}
+          onAdd={() => {
+            setBusinesses((items) => [...items, emptyBusiness()]);
+            setSelectedBusiness(businesses.length);
+          }}
+          onRemove={(index) => {
+            setBusinesses((items) => items.filter((_, i) => i !== index));
+            setSelectedBusiness(0);
+          }}
+          saving={saving}
+          onSave={() =>
+            void run(
+              () => updateAdminBusinesses(token, sessionId, businesses),
+              "Business and entity intake saved."
+            )
+          }
+        >
+          {businesses[selectedBusiness] ? (
+            <BusinessFields
+              item={businesses[selectedBusiness]}
+              year={detail.assessmentYear}
+              onChange={(next) =>
+                setBusinesses((items) =>
+                  items.map((item, i) => (i === selectedBusiness ? next : item))
+                )
+              }
+            />
+          ) : null}
+        </CollectionEditor>
+      ) : null}
 
-    {tab === "documents" ? <Card className="mt-5"><SectionHeader title={`Documents (${detail.documents.length})`} /><div className="mt-5 grid gap-3">{detail.documents.map((document) => <div key={document.id} className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center"><div className="flex min-w-0 items-center gap-3"><FileText className="shrink-0 text-gold-700" aria-hidden size={20} /><div className="min-w-0"><p className="truncate font-semibold text-navy-800">{document.originalName}</p><p className="mt-1 text-xs text-slate-500">{document.category.replaceAll("_", " ")} · {Number(document.sizeBytes) < 1024 ? `${document.sizeBytes} B` : `${(Number(document.sizeBytes) / 1024).toFixed(1)} KB`} · {new Date(document.createdAt).toLocaleString()}</p></div></div><button className="focus-ring grid size-10 place-items-center rounded-full border border-navy-200 text-navy-700 hover:bg-navy-50" onClick={() => void preview(document.id)} aria-label={`Preview ${document.originalName}`}><Eye aria-hidden size={17} /></button></div>)}{detail.documents.length === 0 ? <p className="py-10 text-center text-slate-500">No documents uploaded.</p> : null}</div></Card> : null}
-    {tab === "activity" ? <div className="mt-5 grid gap-5 lg:grid-cols-2"><Card><h2 className="text-xl font-bold text-navy-800">Status History</h2><Timeline items={detail.statusHistory.map((item) => ({ id: item.id, title: item.newStatus.replaceAll("_", " "), helper: `${item.actorType}${item.reason ? ` · ${item.reason}` : ""}`, at: item.createdAt }))} /></Card><Card><h2 className="text-xl font-bold text-navy-800">Admin & Client Audit Trail</h2><Timeline items={detail.auditLogs.map((item) => ({ id: item.id, title: item.action.replaceAll("_", " "), helper: item.actorType, at: item.createdAt }))} /></Card></div> : null}
-  </section>;
+      {tab === "documents" ? (
+        <Card className="mt-5">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <div>
+              <h2 className="text-xl font-bold text-navy-800">
+                Documents ({detail.documents.length})
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Preview, add, or remove files for this client.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[260px_auto]">
+              <Select
+                label="Upload Category"
+                value={documentCategory}
+                onChange={(event) => setDocumentCategory(event.target.value as DocumentCategory)}
+              >
+                {Object.entries(documentCategoryLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+              <div className="self-end">
+                <label
+                  className="focus-ring inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg bg-navy-800 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-700"
+                  htmlFor="admin-client-document-upload"
+                >
+                  <UploadCloud aria-hidden size={17} />
+                  Upload Document
+                </label>
+                <input
+                  id="admin-client-document-upload"
+                  className="sr-only"
+                  type="file"
+                  multiple
+                  disabled={uploadingDocument}
+                  onChange={(event) => void uploadDocuments(event)}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-3">
+            {detail.documents.map((document) => (
+              <div
+                key={document.id}
+                className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <FileText className="shrink-0 text-gold-700" aria-hidden size={20} />
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-navy-800">{document.originalName}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {document.category.replaceAll("_", " ")} ·{" "}
+                      {Number(document.sizeBytes) < 1024
+                        ? `${document.sizeBytes} B`
+                        : `${(Number(document.sizeBytes) / 1024).toFixed(1)} KB`}{" "}
+                      · {new Date(document.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    className="focus-ring grid size-10 place-items-center rounded-full border border-navy-200 text-navy-700 hover:bg-navy-50"
+                    onClick={() => void preview(document.id)}
+                    aria-label={`Preview ${document.originalName}`}
+                  >
+                    <Eye aria-hidden size={17} />
+                  </button>
+                  <button
+                    className="focus-ring grid size-10 place-items-center rounded-full border border-red-200 text-red-700 hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
+                    onClick={() => void removeDocument(document.id, document.originalName)}
+                    disabled={removingDocumentId === document.id}
+                    aria-label={`Remove ${document.originalName}`}
+                  >
+                    <Trash2 aria-hidden size={17} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {detail.documents.length === 0 ? (
+              <p className="py-10 text-center text-slate-500">No documents uploaded.</p>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
+      {tab === "activity" ? (
+        <div className="mt-5 grid gap-5 lg:grid-cols-2">
+          <Card>
+            <h2 className="text-xl font-bold text-navy-800">Status History</h2>
+            <Timeline
+              items={detail.statusHistory.map((item) => ({
+                id: item.id,
+                title: item.newStatus.replaceAll("_", " "),
+                helper: `${item.actorType}${item.reason ? ` · ${item.reason}` : ""}`,
+                at: item.createdAt
+              }))}
+            />
+          </Card>
+          <Card>
+            <h2 className="text-xl font-bold text-navy-800">Admin & Client Audit Trail</h2>
+            <Timeline
+              items={detail.auditLogs.map((item) => ({
+                id: item.id,
+                title: item.action.replaceAll("_", " "),
+                helper: item.actorType,
+                at: item.createdAt
+              }))}
+            />
+          </Card>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
-function Data({ label, value }: { label: string; value: string | null }) { return <div><dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</dt><dd className="mt-1 break-all font-semibold text-navy-800">{value ?? "—"}</dd></div>; }
-function SectionHeader({ title, saving, onSave }: { title: string; saving?: boolean; onSave?: () => void }) { return <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><h2 className="text-xl font-bold text-navy-800">{title}</h2>{onSave ? <Button type="button" onClick={onSave} disabled={saving}><Save aria-hidden size={16} />{saving ? "Saving..." : "Save"}</Button> : saving !== undefined ? <Button type="submit" disabled={saving}><Save aria-hidden size={16} />{saving ? "Saving..." : "Save"}</Button> : null}</div>; }
-function TextField({ label, name, state, setState, type = "text" }: { label: string; name: string; state: Record<string, string>; setState: React.Dispatch<React.SetStateAction<Record<string, string>>>; type?: string }) { return <Input label={label} type={type} value={state[name] ?? ""} onChange={(event) => setState((current) => ({ ...current, [name]: event.target.value }))} />; }
+function Data({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</dt>
+      <dd className="mt-1 break-all font-semibold text-navy-800">{value ?? "—"}</dd>
+    </div>
+  );
+}
+function SectionHeader({
+  title,
+  saving,
+  onSave
+}: {
+  title: string;
+  saving?: boolean;
+  onSave?: () => void;
+}) {
+  return (
+    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+      <h2 className="text-xl font-bold text-navy-800">{title}</h2>
+      {onSave ? (
+        <Button type="button" onClick={onSave} disabled={saving}>
+          <Save aria-hidden size={16} />
+          {saving ? "Saving..." : "Save"}
+        </Button>
+      ) : saving !== undefined ? (
+        <Button type="submit" disabled={saving}>
+          <Save aria-hidden size={16} />
+          {saving ? "Saving..." : "Save"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+function TextField({
+  label,
+  name,
+  state,
+  setState,
+  type = "text"
+}: {
+  label: string;
+  name: string;
+  state: Record<string, string>;
+  setState: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  type?: string;
+}) {
+  return (
+    <Input
+      label={label}
+      type={type}
+      value={state[name] ?? ""}
+      onChange={(event) => setState((current) => ({ ...current, [name]: event.target.value }))}
+    />
+  );
+}
 
-function ProfileEditor({ profile, setProfile, saving, onSave }: { profile: SavePortalProfileRequest; setProfile: (next: SavePortalProfileRequest) => void; saving: boolean; onSave: () => void }) {
+function ProfileEditor({
+  profile,
+  setProfile,
+  saving,
+  onSave
+}: {
+  profile: SavePortalProfileRequest;
+  setProfile: (next: SavePortalProfileRequest) => void;
+  saving: boolean;
+  onSave: () => void;
+}) {
   const update = (next: Partial<SavePortalProfileRequest>) => setProfile({ ...profile, ...next });
   const members = profile.dependents;
-  return <Card><SectionHeader title="Household, Income & Planning" saving={saving} onSave={onSave} /><div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3"><Input label="Home Address" value={profile.homeAddress} onChange={(e) => update({ homeAddress: e.target.value })} /><Input label="City" value={profile.city} onChange={(e) => update({ city: e.target.value })} /><Input label="State" value={profile.state} onChange={(e) => update({ state: e.target.value })} /><Input label="ZIP Code" value={profile.zip} onChange={(e) => update({ zip: e.target.value })} /><EnumSelect label="Homeowner" value={boolValue(profile.homeowner)} options={["true", "false"]} onChange={(value) => update({ homeowner: boolFrom(value) })} /><EnumSelect label="Marital Status" value={profile.maritalStatus} options={["SINGLE", "MARRIED", "DIVORCED", "WIDOWED"]} onChange={(value) => update({ maritalStatus: value as SavePortalProfileRequest["maritalStatus"] })} /><EnumSelect label="Preferred Contact" value={profile.preferredContact} options={["EMAIL", "PHONE", "EITHER"]} onChange={(value) => update({ preferredContact: value as SavePortalProfileRequest["preferredContact"] })} /><EnumSelect label="Resident Status" value={profile.residentStatus} options={["US_CITIZEN", "GREEN_CARD_HOLDER", "VISA", "OTHER"]} onChange={(value) => update({ residentStatus: value as SavePortalProfileRequest["residentStatus"] })} /><EnumSelect label="Owns Real Estate" value={boolValue(profile.ownsRealEstate)} options={["true", "false"]} onChange={(value) => update({ ownsRealEstate: boolFrom(value) })} /><EnumSelect label="Owns Business" value={boolValue(profile.ownsBusiness)} options={["true", "false"]} onChange={(value) => update({ ownsBusiness: boolFrom(value) })} /><Input label="Last Year Taxable Income" type="number" value={inputNum(profile.lastYearTaxableIncome)} onChange={(e) => update({ lastYearTaxableIncome: num(e.target.value) })} /><Input label="Projected Taxable Income" type="number" value={inputNum(profile.projectedTaxableIncome)} onChange={(e) => update({ projectedTaxableIncome: num(e.target.value) })} /><EnumSelect label="Life Insurance In Place" value={boolValue(profile.lifeInsuranceInPlace)} options={["true", "false"]} onChange={(value) => update({ lifeInsuranceInPlace: boolFrom(value) })} /><EnumSelect label="Estate Planning In Place" value={boolValue(profile.estatePlanningInPlace)} options={["true", "false"]} onChange={(value) => update({ estatePlanningInPlace: boolFrom(value) })} /><div className="md:col-span-2 xl:col-span-3"><FieldTextArea label="Major Purchase Notes" value={profile.majorPurchaseNotes} onChange={(value) => update({ majorPurchaseNotes: value })} /></div></div>
-    {profile.maritalStatus === "MARRIED" ? <MemberEditor title="Spouse" member={profile.spouse ?? emptyMember()} onChange={(member) => update({ spouse: member })} /> : null}
-    <div className="mt-6 flex items-center justify-between"><h3 className="text-lg font-bold text-navy-800">Dependents</h3><Button type="button" variant="outline" onClick={() => update({ dependents: [...members, emptyMember()] })}><Plus aria-hidden size={16} />Add Dependent</Button></div>
-    <div className="mt-4 grid gap-4">{members.map((member, index) => <MemberEditor key={index} title={`Dependent ${index + 1}`} member={member} onChange={(next) => update({ dependents: members.map((item, i) => i === index ? next : item) })} onRemove={() => update({ dependents: members.filter((_, i) => i !== index) })} />)}</div>
-  </Card>;
+  return (
+    <Card>
+      <SectionHeader title="Household, Income & Planning" saving={saving} onSave={onSave} />
+      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Input
+          label="Home Address"
+          value={profile.homeAddress}
+          onChange={(e) => update({ homeAddress: e.target.value })}
+        />
+        <Input
+          label="City"
+          value={profile.city}
+          onChange={(e) => update({ city: e.target.value })}
+        />
+        <Input
+          label="State"
+          value={profile.state}
+          onChange={(e) => update({ state: e.target.value })}
+        />
+        <Input
+          label="ZIP Code"
+          value={profile.zip}
+          onChange={(e) => update({ zip: e.target.value })}
+        />
+        <EnumSelect
+          label="Homeowner"
+          value={boolValue(profile.homeowner)}
+          options={["true", "false"]}
+          onChange={(value) => update({ homeowner: boolFrom(value) })}
+        />
+        <EnumSelect
+          label="Marital Status"
+          value={profile.maritalStatus}
+          options={["SINGLE", "MARRIED", "DIVORCED", "WIDOWED"]}
+          onChange={(value) =>
+            update({ maritalStatus: value as SavePortalProfileRequest["maritalStatus"] })
+          }
+        />
+        <EnumSelect
+          label="Preferred Contact"
+          value={profile.preferredContact}
+          options={["EMAIL", "PHONE", "EITHER"]}
+          onChange={(value) =>
+            update({ preferredContact: value as SavePortalProfileRequest["preferredContact"] })
+          }
+        />
+        <EnumSelect
+          label="Resident Status"
+          value={profile.residentStatus}
+          options={["US_CITIZEN", "GREEN_CARD_HOLDER", "VISA", "OTHER"]}
+          onChange={(value) =>
+            update({ residentStatus: value as SavePortalProfileRequest["residentStatus"] })
+          }
+        />
+        <EnumSelect
+          label="Owns Real Estate"
+          value={boolValue(profile.ownsRealEstate)}
+          options={["true", "false"]}
+          onChange={(value) => update({ ownsRealEstate: boolFrom(value) })}
+        />
+        <EnumSelect
+          label="Owns Business"
+          value={boolValue(profile.ownsBusiness)}
+          options={["true", "false"]}
+          onChange={(value) => update({ ownsBusiness: boolFrom(value) })}
+        />
+        <Input
+          label="Last Year Taxable Income"
+          type="number"
+          value={inputNum(profile.lastYearTaxableIncome)}
+          onChange={(e) => update({ lastYearTaxableIncome: num(e.target.value) })}
+        />
+        <Input
+          label="Projected Taxable Income"
+          type="number"
+          value={inputNum(profile.projectedTaxableIncome)}
+          onChange={(e) => update({ projectedTaxableIncome: num(e.target.value) })}
+        />
+        <EnumSelect
+          label="Life Insurance In Place"
+          value={boolValue(profile.lifeInsuranceInPlace)}
+          options={["true", "false"]}
+          onChange={(value) => update({ lifeInsuranceInPlace: boolFrom(value) })}
+        />
+        <EnumSelect
+          label="Estate Planning In Place"
+          value={boolValue(profile.estatePlanningInPlace)}
+          options={["true", "false"]}
+          onChange={(value) => update({ estatePlanningInPlace: boolFrom(value) })}
+        />
+        <div className="md:col-span-2 xl:col-span-3">
+          <FieldTextArea
+            label="Major Purchase Notes"
+            value={profile.majorPurchaseNotes}
+            onChange={(value) => update({ majorPurchaseNotes: value })}
+          />
+        </div>
+      </div>
+      {profile.maritalStatus === "MARRIED" ? (
+        <MemberEditor
+          title="Spouse"
+          member={profile.spouse ?? emptyMember()}
+          onChange={(member) => update({ spouse: member })}
+        />
+      ) : null}
+      <div className="mt-6 flex items-center justify-between">
+        <h3 className="text-lg font-bold text-navy-800">Dependents</h3>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => update({ dependents: [...members, emptyMember()] })}
+        >
+          <Plus aria-hidden size={16} />
+          Add Dependent
+        </Button>
+      </div>
+      <div className="mt-4 grid gap-4">
+        {members.map((member, index) => (
+          <MemberEditor
+            key={index}
+            title={`Dependent ${index + 1}`}
+            member={member}
+            onChange={(next) =>
+              update({ dependents: members.map((item, i) => (i === index ? next : item)) })
+            }
+            onRemove={() => update({ dependents: members.filter((_, i) => i !== index) })}
+          />
+        ))}
+      </div>
+    </Card>
+  );
 }
 
-function MemberEditor({ title, member, onChange, onRemove }: { title: string; member: Omit<PortalHouseholdMember, "id">; onChange: (member: Omit<PortalHouseholdMember, "id">) => void; onRemove?: () => void }) { const update = (next: Partial<typeof member>) => onChange({ ...member, ...next }); return <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4"><div className="mb-4 flex justify-between"><h3 className="font-bold text-navy-800">{title}</h3>{onRemove ? <button type="button" className="text-red-700" onClick={onRemove} aria-label={`Remove ${title}`}><Trash2 size={17} /></button> : null}</div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><Input label="First Name" value={member.firstName} onChange={(e) => update({ firstName: e.target.value })} /><Input label="Middle Name" value={member.middleName} onChange={(e) => update({ middleName: e.target.value })} /><Input label="Last Name" value={member.lastName} onChange={(e) => update({ lastName: e.target.value })} /><Input label="Date Of Birth" type="date" value={member.dateOfBirth} onChange={(e) => update({ dateOfBirth: e.target.value })} /><EnumSelect label="Resident Status" value={member.residentStatus} options={["US_CITIZEN", "GREEN_CARD_HOLDER", "VISA", "OTHER"]} onChange={(value) => update({ residentStatus: value as typeof member.residentStatus })} /><Input label="Sex / Gender Marker" value={member.sex} onChange={(e) => update({ sex: e.target.value })} /><EnumSelect label="Full-Time Student" value={boolValue(member.fullTimeStudent)} options={["true", "false"]} onChange={(value) => update({ fullTimeStudent: boolFrom(value) })} /><EnumSelect label="Lives With Taxpayer" value={boolValue(member.livesWithTaxpayer)} options={["true", "false"]} onChange={(value) => update({ livesWithTaxpayer: boolFrom(value) })} /></div></div>; }
-function EnumSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) { return <Select label={label} value={value} onChange={(event) => onChange(event.target.value)}><option value="">Select</option>{options.map((item) => <option key={item} value={item}>{item === "true" ? "Yes" : item === "false" ? "No" : item.replaceAll("_", " ")}</option>)}</Select>; }
+function MemberEditor({
+  title,
+  member,
+  onChange,
+  onRemove
+}: {
+  title: string;
+  member: Omit<PortalHouseholdMember, "id">;
+  onChange: (member: Omit<PortalHouseholdMember, "id">) => void;
+  onRemove?: () => void;
+}) {
+  const update = (next: Partial<typeof member>) => onChange({ ...member, ...next });
+  return (
+    <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-4 flex justify-between">
+        <h3 className="font-bold text-navy-800">{title}</h3>
+        {onRemove ? (
+          <button
+            type="button"
+            className="text-red-700"
+            onClick={onRemove}
+            aria-label={`Remove ${title}`}
+          >
+            <Trash2 size={17} />
+          </button>
+        ) : null}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Input
+          label="First Name"
+          value={member.firstName}
+          onChange={(e) => update({ firstName: e.target.value })}
+        />
+        <Input
+          label="Middle Name"
+          value={member.middleName}
+          onChange={(e) => update({ middleName: e.target.value })}
+        />
+        <Input
+          label="Last Name"
+          value={member.lastName}
+          onChange={(e) => update({ lastName: e.target.value })}
+        />
+        <Input
+          label="Date Of Birth"
+          type="date"
+          value={member.dateOfBirth}
+          onChange={(e) => update({ dateOfBirth: e.target.value })}
+        />
+        <EnumSelect
+          label="Resident Status"
+          value={member.residentStatus}
+          options={["US_CITIZEN", "GREEN_CARD_HOLDER", "VISA", "OTHER"]}
+          onChange={(value) => update({ residentStatus: value as typeof member.residentStatus })}
+        />
+        <Select
+          label="Sex / Gender Marker"
+          value={member.sex}
+          onChange={(e) => update({ sex: e.target.value })}
+        >
+          <option value="">Select</option>
+          {optionsWithLegacyValue(sexGenderMarkerOptions, member.sex).map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </Select>
+        <EnumSelect
+          label="Full-Time Student"
+          value={boolValue(member.fullTimeStudent)}
+          options={["true", "false"]}
+          onChange={(value) => update({ fullTimeStudent: boolFrom(value) })}
+        />
+        <EnumSelect
+          label="Lives With Taxpayer"
+          value={boolValue(member.livesWithTaxpayer)}
+          options={["true", "false"]}
+          onChange={(value) => update({ livesWithTaxpayer: boolFrom(value) })}
+        />
+      </div>
+    </div>
+  );
+}
+function EnumSelect({
+  label,
+  value,
+  options,
+  onChange
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+      <option value="">Select</option>
+      {options.map((item) => (
+        <option key={item} value={item}>
+          {item === "true" ? "Yes" : item === "false" ? "No" : item.replaceAll("_", " ")}
+        </option>
+      ))}
+    </Select>
+  );
+}
 
-function CollectionEditor<T>({ title, addLabel, items, selected, setSelected, itemLabel, onAdd, onRemove, saving, onSave, children }: { title: string; addLabel: string; items: T[]; selected: number; setSelected: (index: number) => void; itemLabel: (item: T, index: number) => string; onAdd: () => void; onRemove: (index: number) => void; saving: boolean; onSave: () => void; children: React.ReactNode }) { return <div className="mt-5 grid gap-5"><Card><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-2xl font-bold text-navy-800">{title}</h2><div className="flex gap-2"><Button variant="outline" onClick={onAdd}><Plus size={16} />{addLabel}</Button><Button onClick={onSave} disabled={saving}><Save size={16} />Save All</Button></div></div></Card><div className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]"><Card className="self-start"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Records</p><div className="mt-4 grid max-h-[600px] gap-2 overflow-auto">{items.map((item, index) => <div key={index} className={cn("flex items-center gap-2 rounded-xl border p-2", selected === index ? "border-navy-800 bg-navy-50" : "border-slate-200")}><button type="button" className="min-w-0 flex-1 truncate p-2 text-left font-semibold text-navy-800" onClick={() => setSelected(index)}>{itemLabel(item, index)}</button><button type="button" className="grid size-9 place-items-center text-red-700" onClick={() => onRemove(index)} aria-label={`Remove ${itemLabel(item, index)}`}><Trash2 size={16} /></button></div>)}{items.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No records yet.</p> : null}</div></Card><Card>{children ?? <p className="py-16 text-center text-slate-500">Select or add a record.</p>}</Card></div></div>; }
+function CollectionEditor<T>({
+  title,
+  addLabel,
+  items,
+  selected,
+  setSelected,
+  itemLabel,
+  onAdd,
+  onRemove,
+  saving,
+  onSave,
+  children
+}: {
+  title: string;
+  addLabel: string;
+  items: T[];
+  selected: number;
+  setSelected: (index: number) => void;
+  itemLabel: (item: T, index: number) => string;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  saving: boolean;
+  onSave: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mt-5 grid gap-5">
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold text-navy-800">{title}</h2>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onAdd}>
+              <Plus size={16} />
+              {addLabel}
+            </Button>
+            <Button onClick={onSave} disabled={saving}>
+              <Save size={16} />
+              Save All
+            </Button>
+          </div>
+        </div>
+      </Card>
+      <div className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]">
+        <Card className="self-start">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Records</p>
+          <div className="mt-4 grid max-h-[600px] gap-2 overflow-auto">
+            {items.map((item, index) => (
+              <div
+                key={index}
+                className={cn(
+                  "flex items-center gap-2 rounded-xl border p-2",
+                  selected === index ? "border-navy-800 bg-navy-50" : "border-slate-200"
+                )}
+              >
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate p-2 text-left font-semibold text-navy-800"
+                  onClick={() => setSelected(index)}
+                >
+                  {itemLabel(item, index)}
+                </button>
+                <button
+                  type="button"
+                  className="grid size-9 place-items-center text-red-700"
+                  onClick={() => onRemove(index)}
+                  aria-label={`Remove ${itemLabel(item, index)}`}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+            {items.length === 0 ? (
+              <p className="py-8 text-center text-sm text-slate-500">No records yet.</p>
+            ) : null}
+          </div>
+        </Card>
+        <Card>
+          {children ?? <p className="py-16 text-center text-slate-500">Select or add a record.</p>}
+        </Card>
+      </div>
+    </div>
+  );
+}
 
-function PropertyFields({ item, onChange }: { item: PortalProperty; onChange: (item: PortalProperty) => void }) { const update = (next: Partial<PortalProperty>) => onChange({ ...item, ...next }); const money: Array<[string, keyof PortalProperty]> = [["Purchase Price / Basis", "purchaseBasis"], ["Current FMV", "currentFmv"], ["Land Value", "landValue"], ["Mortgage Balance", "mortgageBalance"], ["Monthly Payment", "monthlyPayment"], ["Interest Rate", "interestRate"], ["Prior Interest Paid", "priorInterestPaid"], ["Prior Property Tax Paid", "priorTaxPaid"], ["Gross Rent / STR Income", "projectedGrossRent"], ["Total Annual Expenses", "totalExpenses"]]; return <div><h3 className="text-xl font-bold text-navy-800">Property Details</h3><div className="mt-5 grid gap-4 md:grid-cols-2"><Input label="Property ID / Label" value={item.label} onChange={(e) => update({ label: e.target.value })} /><Input label="Property Category" value={item.category} onChange={(e) => update({ category: e.target.value })} /><Input label="Property Type" value={item.propertyType} onChange={(e) => update({ propertyType: e.target.value })} /><Input label="Use During Tax Year" value={item.taxYearUse} onChange={(e) => update({ taxYearUse: e.target.value })} /><Input className="md:col-span-2" label="Full Address" value={item.fullAddress} onChange={(e) => update({ fullAddress: e.target.value })} /><Input label="Acquired Year" type="number" value={item.acquiredYear} onChange={(e) => update({ acquiredYear: Number(e.target.value) })} /><Input label="Acquired Method" value={item.acquiredMethod} onChange={(e) => update({ acquiredMethod: e.target.value })} />{money.map(([label, key]) => <Input key={String(key)} label={label} type="number" value={inputNum(item[key])} onChange={(e) => update({ [key]: num(e.target.value) })} />)}<Input label="Mortgage Company" value={item.mortgageCompany ?? ""} onChange={(e) => update({ mortgageCompany: e.target.value })} /><Input label="Mortgage Term Years" type="number" value={inputNum(item.mortgageTermYears)} onChange={(e) => update({ mortgageTermYears: num(e.target.value) })} /><Input label="Rental Start Date" type="date" value={item.rentalStartDate ?? ""} onChange={(e) => update({ rentalStartDate: e.target.value || null })} /><Input label="Days Rented" type="number" value={inputNum(item.daysRented)} onChange={(e) => update({ daysRented: num(e.target.value) })} /><Input label="Personal Use Days" type="number" value={inputNum(item.personalUseDays)} onChange={(e) => update({ personalUseDays: num(e.target.value) })} /><div className="md:col-span-2"><FieldTextArea label="Notes / Comments" value={item.notes ?? ""} onChange={(value) => update({ notes: value })} /></div></div><div className="mt-6 flex justify-between"><h4 className="font-bold text-navy-800">Owner(s) & Ownership %</h4><Button variant="outline" onClick={() => update({ owners: [...item.owners, { ownerName: "", ownershipPercentage: 0 }] })}><Plus size={15} />Add Owner</Button></div><div className="mt-3 grid gap-3">{item.owners.map((owner, index) => <div className="grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-[1fr_180px_auto]" key={index}><Input label="Owner Name" value={owner.ownerName} onChange={(e) => update({ owners: item.owners.map((current, i) => i === index ? { ...current, ownerName: e.target.value } : current) })} /><Input label="Ownership %" type="number" value={owner.ownershipPercentage} onChange={(e) => update({ owners: item.owners.map((current, i) => i === index ? { ...current, ownershipPercentage: Number(e.target.value) } : current) })} /><button className="self-end pb-3 text-red-700" onClick={() => update({ owners: item.owners.filter((_, i) => i !== index) })} aria-label="Remove owner"><Trash2 size={17} /></button></div>)}</div></div>; }
+function PropertyFields({
+  item,
+  onChange
+}: {
+  item: PortalProperty;
+  onChange: (item: PortalProperty) => void;
+}) {
+  const update = (next: Partial<PortalProperty>) => onChange({ ...item, ...next });
+  const money: Array<[string, keyof PortalProperty]> = [
+    ["Purchase Price / Basis", "purchaseBasis"],
+    ["Current FMV", "currentFmv"],
+    ["Land Value", "landValue"],
+    ["Mortgage Balance", "mortgageBalance"],
+    ["Monthly Payment", "monthlyPayment"],
+    ["Interest Rate", "interestRate"],
+    ["Prior Interest Paid", "priorInterestPaid"],
+    ["Prior Property Tax Paid", "priorTaxPaid"],
+    ["Gross Rent / STR Income", "projectedGrossRent"],
+    ["Total Annual Expenses", "totalExpenses"]
+  ];
+  return (
+    <div>
+      <h3 className="text-xl font-bold text-navy-800">Property Details</h3>
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <Input
+          label="Property ID / Label"
+          value={item.label}
+          onChange={(e) => update({ label: e.target.value })}
+        />
+        <Input
+          label="Property Category"
+          value={item.category}
+          onChange={(e) => update({ category: e.target.value })}
+        />
+        <Input
+          label="Property Type"
+          value={item.propertyType}
+          onChange={(e) => update({ propertyType: e.target.value })}
+        />
+        <Input
+          label="Use During Tax Year"
+          value={item.taxYearUse}
+          onChange={(e) => update({ taxYearUse: e.target.value })}
+        />
+        <Input
+          className="md:col-span-2"
+          label="Full Address"
+          value={item.fullAddress}
+          onChange={(e) => update({ fullAddress: e.target.value })}
+        />
+        <Input
+          label="Acquired Year"
+          type="number"
+          value={item.acquiredYear}
+          onChange={(e) => update({ acquiredYear: Number(e.target.value) })}
+        />
+        <Select
+          label="Acquired Method"
+          value={item.acquiredMethod}
+          onChange={(e) => update({ acquiredMethod: e.target.value })}
+        >
+          <option value="">Select</option>
+          {optionsWithLegacyValue(acquiredMethodOptions, item.acquiredMethod).map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </Select>
+        {money.map(([label, key]) => (
+          <Input
+            key={String(key)}
+            label={label}
+            type="number"
+            value={inputNum(item[key])}
+            onChange={(e) => update({ [key]: num(e.target.value) })}
+          />
+        ))}
+        <Input
+          label="Mortgage Company"
+          value={item.mortgageCompany ?? ""}
+          onChange={(e) => update({ mortgageCompany: e.target.value })}
+        />
+        <Input
+          label="Mortgage Term Years"
+          type="number"
+          value={inputNum(item.mortgageTermYears)}
+          onChange={(e) => update({ mortgageTermYears: num(e.target.value) })}
+        />
+        <Input
+          label="Rental Start Date"
+          type="date"
+          value={item.rentalStartDate ?? ""}
+          onChange={(e) => update({ rentalStartDate: e.target.value || null })}
+        />
+        <Input
+          label="Days Rented"
+          type="number"
+          value={inputNum(item.daysRented)}
+          onChange={(e) => update({ daysRented: num(e.target.value) })}
+        />
+        <Input
+          label="Personal Use Days"
+          type="number"
+          value={inputNum(item.personalUseDays)}
+          onChange={(e) => update({ personalUseDays: num(e.target.value) })}
+        />
+        <div className="md:col-span-2">
+          <FieldTextArea
+            label="Notes / Comments"
+            value={item.notes ?? ""}
+            onChange={(value) => update({ notes: value })}
+          />
+        </div>
+      </div>
+      <div className="mt-6 flex justify-between">
+        <h4 className="font-bold text-navy-800">Owner(s) & Ownership %</h4>
+        <Button
+          variant="outline"
+          onClick={() =>
+            update({ owners: [...item.owners, { ownerName: "", ownershipPercentage: 0 }] })
+          }
+        >
+          <Plus size={15} />
+          Add Owner
+        </Button>
+      </div>
+      <div className="mt-3 grid gap-3">
+        {item.owners.map((owner, index) => (
+          <div
+            className="grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-[1fr_180px_auto]"
+            key={index}
+          >
+            <Input
+              label="Owner Name"
+              value={owner.ownerName}
+              onChange={(e) =>
+                update({
+                  owners: item.owners.map((current, i) =>
+                    i === index ? { ...current, ownerName: e.target.value } : current
+                  )
+                })
+              }
+            />
+            <Input
+              label="Ownership %"
+              type="number"
+              value={owner.ownershipPercentage}
+              onChange={(e) =>
+                update({
+                  owners: item.owners.map((current, i) =>
+                    i === index
+                      ? { ...current, ownershipPercentage: Number(e.target.value) }
+                      : current
+                  )
+                })
+              }
+            />
+            <button
+              className="self-end pb-3 text-red-700"
+              onClick={() => update({ owners: item.owners.filter((_, i) => i !== index) })}
+              aria-label="Remove owner"
+            >
+              <Trash2 size={17} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-function BusinessFields({ item, year, onChange }: { item: PortalBusinessInvestment; year: number; onChange: (item: PortalBusinessInvestment) => void }) { const update = (next: Partial<PortalBusinessInvestment>) => onChange({ ...item, ...next }); return <div><h3 className="text-xl font-bold text-navy-800">Entity Details</h3><div className="mt-5 grid gap-4 md:grid-cols-2"><Input label="Entity Name" value={item.entityName} onChange={(e) => update({ entityName: e.target.value })} /><Input label="Entity Type" value={item.entityType} onChange={(e) => update({ entityType: e.target.value })} /><Input label="Ownership %" type="number" value={item.ownershipPercent} onChange={(e) => update({ ownershipPercent: Number(e.target.value) })} /><Input label="Tax Classification" value={item.taxClassification} onChange={(e) => update({ taxClassification: e.target.value })} /><EnumSelect label="Active" value={boolValue(item.active)} options={["true", "false"]} onChange={(value) => update({ active: boolFrom(value) })} /><Input label={`${year - 3} Income / Loss`} type="number" value={inputNum(item.incomeLossYearMinus3)} onChange={(e) => update({ incomeLossYearMinus3: num(e.target.value), priorYearIncomeLoss: num(e.target.value), priorYear: year - 3 })} /><Input label={`${year - 2} Income / Loss`} type="number" value={inputNum(item.incomeLossYearMinus2)} onChange={(e) => update({ incomeLossYearMinus2: num(e.target.value) })} /><Input label={`${year - 1} Income / Loss`} type="number" value={inputNum(item.incomeLossYearMinus1)} onChange={(e) => update({ incomeLossYearMinus1: num(e.target.value) })} /><Input label={`${year} Projected Income / Loss`} type="number" value={inputNum(item.projectedCurrentYearIncomeLoss)} onChange={(e) => update({ projectedCurrentYearIncomeLoss: num(e.target.value) })} /><div className="md:col-span-2"><FieldTextArea label="Additional Notes / Comments" value={item.notes ?? ""} onChange={(value) => update({ notes: value })} /></div></div></div>; }
-function Timeline({ items }: { items: Array<{ id: string; title: string; helper: string; at: string }> }) { return <div className="mt-5 grid max-h-[650px] gap-3 overflow-auto">{items.map((item) => <div key={item.id} className="border-l-2 border-gold-300 pl-4"><p className="font-semibold capitalize text-navy-800">{item.title.toLowerCase()}</p><p className="mt-1 text-xs text-slate-500">{item.helper}</p><p className="mt-1 text-xs text-slate-400">{new Date(item.at).toLocaleString()}</p></div>)}{items.length === 0 ? <p className="py-8 text-center text-slate-500">No history recorded.</p> : null}</div>; }
+function BusinessFields({
+  item,
+  year,
+  onChange
+}: {
+  item: PortalBusinessInvestment;
+  year: number;
+  onChange: (item: PortalBusinessInvestment) => void;
+}) {
+  const update = (next: Partial<PortalBusinessInvestment>) => onChange({ ...item, ...next });
+  return (
+    <div>
+      <h3 className="text-xl font-bold text-navy-800">Entity Details</h3>
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <Input
+          label="Entity Name"
+          value={item.entityName}
+          onChange={(e) => update({ entityName: e.target.value })}
+        />
+        <Select
+          label="Entity Type"
+          value={item.entityType}
+          onChange={(e) => update({ entityType: e.target.value })}
+        >
+          <option value="">Select</option>
+          {optionsWithLegacyValue(entityTypeOptions, item.entityType).map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </Select>
+        <Input
+          label="Ownership %"
+          type="number"
+          value={item.ownershipPercent}
+          onChange={(e) => update({ ownershipPercent: Number(e.target.value) })}
+        />
+        <Select
+          label="Tax Classification"
+          value={item.taxClassification}
+          onChange={(e) => update({ taxClassification: e.target.value })}
+        >
+          <option value="">Select</option>
+          {optionsWithLegacyValue(taxClassificationOptions, item.taxClassification).map(
+            (option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            )
+          )}
+        </Select>
+        <EnumSelect
+          label="Active"
+          value={boolValue(item.active)}
+          options={["true", "false"]}
+          onChange={(value) => update({ active: boolFrom(value) })}
+        />
+        <Input
+          label={`${year - 3} Income / Loss`}
+          type="number"
+          value={inputNum(item.incomeLossYearMinus3)}
+          onChange={(e) =>
+            update({
+              incomeLossYearMinus3: num(e.target.value),
+              priorYearIncomeLoss: num(e.target.value),
+              priorYear: year - 3
+            })
+          }
+        />
+        <Input
+          label={`${year - 2} Income / Loss`}
+          type="number"
+          value={inputNum(item.incomeLossYearMinus2)}
+          onChange={(e) => update({ incomeLossYearMinus2: num(e.target.value) })}
+        />
+        <Input
+          label={`${year - 1} Income / Loss`}
+          type="number"
+          value={inputNum(item.incomeLossYearMinus1)}
+          onChange={(e) => update({ incomeLossYearMinus1: num(e.target.value) })}
+        />
+        <Input
+          label={`${year} Projected Income / Loss`}
+          type="number"
+          value={inputNum(item.projectedCurrentYearIncomeLoss)}
+          onChange={(e) => update({ projectedCurrentYearIncomeLoss: num(e.target.value) })}
+        />
+        <div className="md:col-span-2">
+          <FieldTextArea
+            label="Additional Notes / Comments"
+            value={item.notes ?? ""}
+            onChange={(value) => update({ notes: value })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+function Timeline({
+  items
+}: {
+  items: Array<{ id: string; title: string; helper: string; at: string }>;
+}) {
+  return (
+    <div className="mt-5 grid max-h-[650px] gap-3 overflow-auto">
+      {items.map((item) => (
+        <div key={item.id} className="border-l-2 border-gold-300 pl-4">
+          <p className="font-semibold capitalize text-navy-800">{item.title.toLowerCase()}</p>
+          <p className="mt-1 text-xs text-slate-500">{item.helper}</p>
+          <p className="mt-1 text-xs text-slate-400">{new Date(item.at).toLocaleString()}</p>
+        </div>
+      ))}
+      {items.length === 0 ? (
+        <p className="py-8 text-center text-slate-500">No history recorded.</p>
+      ) : null}
+    </div>
+  );
+}
