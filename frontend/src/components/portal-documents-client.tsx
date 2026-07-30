@@ -142,10 +142,6 @@ export function PortalDocumentsClient({
 
   const uploadedDocuments = useMemo(() => documents.filter(isUploaded), [documents]);
   const uploadedCount = uploadedDocuments.length;
-  const totalUploadedBytes = useMemo(
-    () => uploadedDocuments.reduce((total, document) => total + document.sizeBytes, 0),
-    [uploadedDocuments]
-  );
 
   const documentsByCategory = useMemo(() => {
     const grouped = new Map<DocumentCategory, AssessmentDocument[]>();
@@ -175,14 +171,16 @@ export function PortalDocumentsClient({
     return freshToken;
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (showSuccess = false) => {
     setLoading(true);
     setError(null);
+    if (showSuccess) setMessage(null);
     try {
       const activeToken = await resolvePortalToken();
       const response = await loadDocuments(activeToken);
       setDocuments(response.documents);
       onDocumentsChanged?.(response.documents);
+      if (showSuccess) setMessage("Documents refreshed.");
     } catch (caught) {
       setError(caught instanceof AssessmentApiError ? caught.message : "We could not load your document list.");
     } finally {
@@ -193,6 +191,12 @@ export function PortalDocumentsClient({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!message) return;
+    const timeoutId = window.setTimeout(() => setMessage(null), 2_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [message]);
 
   async function openPreview(document: AssessmentDocument) {
     setPreviewLoadingId(document.id);
@@ -311,7 +315,7 @@ export function PortalDocumentsClient({
         />
       )}
       <Card className={cn(embedded ? "overflow-hidden bg-gradient-to-r from-white via-white to-navy-50/80 p-0" : "mt-8 overflow-hidden bg-gradient-to-r from-white via-white to-navy-50/80 p-0")}>
-        <div className="flex flex-col gap-5 p-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="p-6">
           <div className="min-w-0">
             <StatusBadge status={uploadedCount > 0 ? "complete" : "active"}>
               {uploadedCount > 0 ? `${uploadedCount} uploaded` : "Ready for documents"}
@@ -323,35 +327,22 @@ export function PortalDocumentsClient({
               </p>
             </div>
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[520px]">
-            <div className="rounded-2xl border border-navy-100 bg-white/80 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Files</p>
-              <p className="mt-1 text-lg font-bold text-navy-800">{uploadedCount}</p>
-            </div>
-            <div className="rounded-2xl border border-navy-100 bg-white/80 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Uploaded</p>
-              <p className="mt-1 text-lg font-bold text-navy-800">{formatBytes(totalUploadedBytes)}</p>
-            </div>
-            <div className="rounded-2xl border border-navy-100 bg-white/80 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Limit</p>
-              <p className="mt-1 text-lg font-bold text-navy-800">25 MB/file</p>
-            </div>
-          </div>
         </div>
       </Card>
 
-      <div className="mt-6 grid gap-4">
-        {error ? <ErrorAlert>{error}</ErrorAlert> : null}
-        {message ? (
-          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-            <CheckCircle2 aria-hidden size={18} />
-            <span>{message}</span>
-          </div>
-        ) : null}
-      </div>
+      {error || message ? (
+        <div className="mt-4 grid gap-3">
+          {error ? <ErrorAlert>{error}</ErrorAlert> : null}
+          {message ? (
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+              <CheckCircle2 aria-hidden size={18} />
+              <span>{message}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
-      <div className="mt-6 grid gap-6 lg:items-stretch lg:grid-cols-[290px_minmax(0,1fr)]">
+      <div className="mt-4 grid gap-5 lg:items-stretch lg:grid-cols-[290px_minmax(0,1fr)]">
         <Card className="flex min-h-0 flex-col p-4 lg:[contain:size]">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -361,7 +352,7 @@ export function PortalDocumentsClient({
                 Prior Tax Returns and W-2 Income are required before Submit for Review.
               </p>
             </div>
-            <Button type="button" variant="outline" className="min-h-10 px-3" onClick={() => void refresh()} disabled={loading} aria-label="Refresh document categories">
+            <Button type="button" variant="outline" className="min-h-10 px-3" onClick={() => void refresh(true)} disabled={loading} aria-label="Refresh document categories">
               <RefreshCw aria-hidden size={16} />
             </Button>
           </div>
@@ -436,10 +427,13 @@ export function PortalDocumentsClient({
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{activeFolder.helper}</p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <StatusBadge status={activeDocuments.length > 0 ? "complete" : "pending"}>
                 {pluralize(activeDocuments.length, "file")}
               </StatusBadge>
+              <span className="inline-flex min-h-9 items-center rounded-full bg-slate-100 px-3 text-xs font-semibold text-slate-600">
+                Max 25 MB per file
+              </span>
               <label
                 className="focus-ring inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg bg-navy-800 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-700"
                 htmlFor={activeInputId}

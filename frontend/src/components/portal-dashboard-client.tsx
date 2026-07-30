@@ -69,29 +69,25 @@ import {
 
 type DashboardTab = "personal" | "realEstate" | "business" | "documents";
 
-const tabs: Array<{ id: DashboardTab; label: string; helper: string; icon: typeof UserRound }> = [
+const tabs: Array<{ id: DashboardTab; label: string; icon: typeof UserRound }> = [
   {
     id: "personal",
     label: "Personal And Family Information",
-    helper: "Household, spouse, and dependent details.",
     icon: UserRound
   },
   {
     id: "realEstate",
     label: "Real Estate Intake",
-    helper: "Owned, rental, and investment properties.",
     icon: Building2
   },
   {
     id: "business",
     label: "Business And Entity Intake",
-    helper: "LLCs, S-Corps, partnerships, and other entities.",
     icon: BriefcaseBusiness
   },
   {
     id: "documents",
     label: "Document Upload Requirements",
-    helper: "Secure document folders and upload history.",
     icon: FileUp
   }
 ];
@@ -905,12 +901,12 @@ export function PortalDashboardClient() {
   }
 
   return (
-    <section className="mx-auto min-h-[75vh] w-full max-w-[1500px] px-5 py-10 sm:px-8">
+    <section className="mx-auto min-h-[75vh] w-full max-w-[1500px] px-5 py-6 sm:px-8 sm:py-8">
       {(saving || readySubmitting) && (
         <LoadingOverlay label={readySubmitting ? "Submitting for review" : "Saving intake"} />
       )}
       <Card className="overflow-hidden bg-gradient-to-r from-white via-white to-navy-50/80 p-0">
-        <div className="flex flex-col gap-5 p-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-5 p-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <StatusBadge status="active">Client Dashboard</StatusBadge>
             <h1 className="mt-3 text-3xl font-bold text-navy-800">{clientName}</h1>
@@ -955,42 +951,41 @@ export function PortalDashboardClient() {
         </div>
       </Card>
 
-      <div className="mt-5 grid gap-4">
-        {error ? (
-          <ErrorAlert>
-            <p>{error}</p>
-            {issues.length > 0 ? (
-              <ul className="mt-3 list-disc pl-5">
-                {issues.map((issue) => (
-                  <li key={`${issue.path}-${issue.message}`}>
-                    {issue.path}: {issue.message}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </ErrorAlert>
-        ) : null}
-        {message ? (
-          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-            <CheckCircle2 aria-hidden size={18} />
-            {message}
-          </div>
-        ) : null}
-      </div>
+      {error || message ? (
+        <div className="mt-3 grid gap-3">
+          {error ? (
+            <ErrorAlert>
+              <p>{error}</p>
+              {issues.length > 0 ? (
+                <ul className="mt-3 list-disc pl-5">
+                  {issues.map((issue) => (
+                    <li key={`${issue.path}-${issue.message}`}>
+                      {issue.path}: {issue.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </ErrorAlert>
+          ) : null}
+          {message ? (
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+              <CheckCircle2 aria-hidden size={18} />
+              {message}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
-      <Card className="mt-6">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">
-              Assessment Intake
-            </p>
-            <h2 className="mt-2 text-xl font-bold text-navy-800">Sections</h2>
-          </div>
-          <p className="text-sm text-slate-500">
-            Switch between sections and save each intake area as you complete it.
+      <Card className="mt-4 p-5 lg:w-1/2">
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">
+            Assessment Intake
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Switch between intake areas and save each one as you complete it.
           </p>
         </div>
-        <div className="mt-5 grid gap-3 lg:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -998,7 +993,7 @@ export function PortalDashboardClient() {
               <button
                 key={tab.id}
                 className={cn(
-                  "focus-ring flex min-h-28 w-full items-start gap-3 rounded-2xl border p-4 text-left transition",
+                  "focus-ring flex min-h-20 w-full items-center gap-3 rounded-2xl border p-4 text-left transition",
                   active
                     ? "border-navy-800 bg-navy-800 text-white shadow-card"
                     : "border-slate-200 bg-white text-navy-800 hover:border-gold-300 hover:bg-gold-50"
@@ -1015,17 +1010,7 @@ export function PortalDashboardClient() {
                 >
                   <Icon aria-hidden size={22} />
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-bold">{tab.label}</span>
-                  <span
-                    className={cn(
-                      "mt-2 block text-xs leading-5",
-                      active ? "text-white/75" : "text-slate-500"
-                    )}
-                  >
-                    {tab.helper}
-                  </span>
-                </span>
+                <span className="min-w-0 flex-1 text-sm font-bold">{tab.label}</span>
                 {tabCompletion[tab.id] ? (
                   <CheckCircle2
                     aria-hidden
@@ -1039,7 +1024,7 @@ export function PortalDashboardClient() {
         </div>
       </Card>
 
-      <div className="mt-6 min-w-0">
+      <div className="mt-4 min-w-0">
         {activeTab === "personal" ? (
           <form ref={personalFormRef} className="grid gap-6" onSubmit={handleProfileSave}>
             <Card>

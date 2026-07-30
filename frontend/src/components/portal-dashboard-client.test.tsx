@@ -166,6 +166,39 @@ afterEach(() => {
 });
 
 describe("PortalDashboardClient", () => {
+  it("uses a compact responsive intake navigator without section or tile descriptions", async () => {
+    const { container } = render(<PortalDashboardClient />);
+
+    const dashboardHeading = await screen.findByRole("heading", { name: "Kiro Savians" });
+    const intakeHeading = screen.getByRole("heading", { name: "Assessment Intake" });
+    const intakeCard = intakeHeading.closest("section");
+    const personalTile = screen.getByRole("button", {
+      name: "Personal And Family Information"
+    });
+
+    expect(container.firstElementChild).toHaveClass("py-6", "sm:py-8");
+    expect(dashboardHeading.closest("section")).toHaveClass("p-0");
+    expect(intakeCard).toHaveClass("mt-4", "p-5", "lg:w-1/2");
+    expect(personalTile.parentElement).toHaveClass("sm:grid-cols-2");
+    expect(personalTile).toHaveClass("min-h-20", "items-center");
+    expect(intakeCard).not.toHaveTextContent(/\bsections\b/i);
+    expect(
+      screen.queryByText("Household, spouse, and dependent details.")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Owned, rental, and investment properties.")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("LLCs, S-Corps, partnerships, and other entities.")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Secure document folders and upload history.")
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Home Address").closest("form")?.parentElement).toHaveClass(
+      "mt-4"
+    );
+  });
+
   it("removes retired controls and uses one required property-category workflow", async () => {
     render(<PortalDashboardClient />);
 

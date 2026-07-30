@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssessmentDocument } from "@/services/assessment-api";
 import { PortalDocumentsClient } from "./portal-documents-client";
@@ -42,6 +42,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -68,6 +69,11 @@ describe("PortalDocumentsClient category sequence", () => {
     expect(sequence.querySelector(".lucide-folder-open")).not.toBeInTheDocument();
     expect(sequence.querySelector(".lucide-arrow-down")).not.toBeInTheDocument();
     expect(within(sequence).getAllByText("Required")).toHaveLength(2);
+    expect(screen.queryByText("Files", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("Uploaded", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("Limit", { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByText("Max 25 MB per file")).toBeInTheDocument();
+    expect(categoriesPanel?.parentElement).toHaveClass("mt-4", "gap-5");
 
     const firstCategory = within(sequence).getByRole("button", { name: /Step 1 of 10: Prior Tax Returns Documents/ });
     expect(firstCategory).toHaveAttribute("aria-current", "step");
@@ -150,5 +156,32 @@ describe("PortalDocumentsClient category sequence", () => {
       expect(api.createDocumentPreviewUrl).toHaveBeenCalledWith("portal-token", "document-1")
     );
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("dismisses document success notifications after two seconds", async () => {
+    render(<PortalDocumentsClient embedded />);
+
+    await waitFor(() => expect(api.loadDocuments).toHaveBeenCalledWith("portal-token"));
+    let resolveRefresh!: (value: { documents: AssessmentDocument[] }) => void;
+    api.loadDocuments.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRefresh = resolve;
+        })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh document categories" }));
+    await waitFor(() => expect(api.loadDocuments).toHaveBeenCalledTimes(2));
+
+    vi.useFakeTimers();
+    await act(async () => {
+      resolveRefresh({ documents: [] });
+    });
+
+    expect(screen.getByText("Documents refreshed.")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1_999));
+    expect(screen.getByText("Documents refreshed.")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByText("Documents refreshed.")).not.toBeInTheDocument();
   });
 });
