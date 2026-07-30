@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BriefcaseBusiness,
   Building2,
@@ -24,6 +24,7 @@ import {
   savePortalBusinessInvestments,
   savePortalProfile,
   savePortalProperties,
+  type AssessmentDocument,
   type ClientType,
   type IncomeRange,
   type MaritalStatus,
@@ -59,6 +60,12 @@ import {
   portalPropertyCategoryOptions,
   preparePortalPropertiesForSave
 } from "@/lib/portal-properties";
+import {
+  getNavigationRequirementIssue,
+  getReviewSubmissionIssues,
+  requiredReviewDocuments,
+  type ReviewReadinessState
+} from "@/lib/review-readiness";
 
 type DashboardTab = "personal" | "realEstate" | "business" | "documents";
 
@@ -315,6 +322,19 @@ function fullName(person: { firstName: string; middleName?: string; lastName: st
   return [person.firstName, person.middleName, person.lastName].filter(Boolean).join(" ");
 }
 
+function readinessStateFromDashboard(
+  response: PortalDashboardResponse
+): ReviewReadinessState {
+  return {
+    homeowner: response.profile.homeowner,
+    ownsRealEstate: response.profile.ownsRealEstate,
+    ownsBusiness: response.profile.ownsBusiness,
+    propertyCount: response.properties.length,
+    businessCount: response.businessInvestments.length,
+    uploadedCategories: response.documentSummary.uploadedCategories
+  };
+}
+
 function BooleanSelect({
   label,
   value,
@@ -472,6 +492,7 @@ export function PortalDashboardClient() {
     selectedPropertyIndex === null ? null : (properties[selectedPropertyIndex] ?? null);
   const selectedBusiness =
     selectedBusinessIndex === null ? null : (businessInvestments[selectedBusinessIndex] ?? null);
+  const uploadedCategorySet = new Set(dashboard?.documentSummary.uploadedCategories ?? []);
 
   const syncDashboard = useCallback((response: PortalDashboardResponse) => {
     setDashboard(response);
@@ -518,6 +539,43 @@ export function PortalDashboardClient() {
     [syncDashboard]
   );
 
+  const handleDocumentsChanged = useCallback((nextDocuments: AssessmentDocument[]) => {
+    const uploadedDocuments = nextDocuments.filter(
+      (document) => document.status === "UPLOADED" || document.status === "CLEAN"
+    );
+    setDashboard((current) =>
+      current
+        ? {
+            ...current,
+            documentSummary: {
+              uploadedCount: uploadedDocuments.length,
+              uploadedBytes: uploadedDocuments.reduce(
+                (total, document) => total + document.sizeBytes,
+                0
+              ),
+              uploadedCategories: Array.from(
+                new Set(uploadedDocuments.map((document) => document.category))
+              ),
+              recentDocuments: [...uploadedDocuments]
+                .sort(
+                  (left, right) =>
+                    new Date(right.createdAt).getTime() -
+                    new Date(left.createdAt).getTime()
+                )
+                .slice(0, 10)
+                .map(({ id, category, originalName, sizeBytes, createdAt }) => ({
+                  id,
+                  category,
+                  originalName,
+                  sizeBytes,
+                  createdAt
+                }))
+            }
+          }
+        : current
+    );
+  }, []);
+
   useEffect(() => {
     getCurrentPortalAccessToken().then((token) => {
       if (token && ["ADMIN", "SUPER_ADMIN"].includes(getPortalIdentity(token).role))
@@ -541,24 +599,21 @@ export function PortalDashboardClient() {
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [readyConfirmationOpen, readySubmitting]);
 
-  const tabCompletion = useMemo(
-    () => ({
-      personal: dashboard?.completion.status === "COMPLETE",
-      realEstate: properties.length > 0 || profileDraft.profile.ownsRealEstate === false,
-      business: businessInvestments.length > 0 || profileDraft.profile.ownsBusiness === false,
-      documents: (dashboard?.documentSummary.uploadedCount ?? 0) > 0
-    }),
-    [
-      businessInvestments.length,
-      dashboard?.completion.status,
-      dashboard?.documentSummary.uploadedCount,
-      profileDraft.profile.ownsBusiness,
-      profileDraft.profile.ownsRealEstate,
-      properties.length
-    ]
-  );
+  const tabCompletion = {
+    personal: dashboard?.completion.status === "COMPLETE",
+    realEstate:
+      properties.some((property) => Boolean(property.id)) ||
+      (profileDraft.profile.homeowner === false &&
+        profileDraft.profile.ownsRealEstate === false),
+    business:
+      businessInvestments.some((business) => Boolean(business.id)) ||
+      profileDraft.profile.ownsBusiness === false,
+    documents: requiredReviewDocuments.every((document) =>
+      uploadedCategorySet.has(document.category)
+    )
+  };
 
-  async function saveProfileSection() {
+  async function saveProfileSection(): Promise<PortalDashboardResponse | null> {
     setSaving(true);
     setError(null);
     setIssues([]);
@@ -568,12 +623,12 @@ export function PortalDashboardClient() {
       const response = await loadPortalDashboard(accessToken);
       syncDashboard(response);
       setMessage("Personal and family information saved.");
-      return true;
+      return response;
     } catch (caught) {
       const apiError = caught as AssessmentApiError;
       setError(apiError.message ?? "We could not save Personal and Family Information.");
       setIssues(apiError.issues ?? []);
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
@@ -584,22 +639,24 @@ export function PortalDashboardClient() {
     await saveProfileSection();
   }
 
-  async function savePropertiesSection() {
+  async function savePropertiesSection(): Promise<PortalDashboardResponse | null> {
     setSaving(true);
     setError(null);
     setIssues([]);
     setMessage(null);
     try {
-      syncDashboard(
-        await savePortalProperties(accessToken, preparePortalPropertiesForSave(properties))
+      const response = await savePortalProperties(
+        accessToken,
+        preparePortalPropertiesForSave(properties)
       );
+      syncDashboard(response);
       setMessage("Real Estate Intake saved.");
-      return true;
+      return response;
     } catch (caught) {
       const apiError = caught as AssessmentApiError;
       setError(apiError.message ?? "We could not save Real Estate Intake.");
       setIssues(apiError.issues ?? []);
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
@@ -610,20 +667,21 @@ export function PortalDashboardClient() {
     await savePropertiesSection();
   }
 
-  async function saveBusinessSection() {
+  async function saveBusinessSection(): Promise<PortalDashboardResponse | null> {
     setSaving(true);
     setError(null);
     setIssues([]);
     setMessage(null);
     try {
-      syncDashboard(await savePortalBusinessInvestments(accessToken, businessInvestments));
+      const response = await savePortalBusinessInvestments(accessToken, businessInvestments);
+      syncDashboard(response);
       setMessage("Business and Entity Intake saved.");
-      return true;
+      return response;
     } catch (caught) {
       const apiError = caught as AssessmentApiError;
       setError(apiError.message ?? "We could not save Business and Entity Intake.");
       setIssues(apiError.issues ?? []);
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
@@ -634,7 +692,7 @@ export function PortalDashboardClient() {
     await saveBusinessSection();
   }
 
-  async function saveActiveSection() {
+  async function saveActiveSection(): Promise<PortalDashboardResponse | null> {
     const activeForm =
       activeTab === "personal"
         ? personalFormRef.current
@@ -648,7 +706,7 @@ export function PortalDashboardClient() {
       setError("Please complete all required fields before continuing.");
       setIssues([]);
       setMessage(null);
-      return false;
+      return null;
     }
 
     return activeTab === "personal"
@@ -657,24 +715,67 @@ export function PortalDashboardClient() {
         ? savePropertiesSection()
         : activeTab === "business"
           ? saveBusinessSection()
-          : true;
+          : dashboard;
   }
 
   async function handleTabChange(nextTab: DashboardTab) {
     if (nextTab === activeTab || saving || readySubmitting) return;
-    const saved = await saveActiveSection();
-    if (saved) setActiveTab(nextTab);
+    const savedDashboard = await saveActiveSection();
+    if (!savedDashboard) return;
+
+    const requirementIssue = getNavigationRequirementIssue(
+      nextTab,
+      readinessStateFromDashboard(savedDashboard)
+    );
+    if (requirementIssue) {
+      setError(requirementIssue.message);
+      setIssues([]);
+      setMessage(null);
+      return;
+    }
+
+    setActiveTab(nextTab);
   }
 
   async function openReadyConfirmation() {
     if (saving || readySubmitting) return;
-    const saved = await saveActiveSection();
-    if (saved) setReadyConfirmationOpen(true);
+    const savedDashboard = await saveActiveSection();
+    if (!savedDashboard) return;
+
+    setSaving(true);
+    setError(null);
+    setIssues([]);
+    setMessage(null);
+    try {
+      const response = await loadPortalDashboard(accessToken);
+      syncDashboard(response);
+      const submissionIssues = getReviewSubmissionIssues(
+        readinessStateFromDashboard(response)
+      );
+      if (submissionIssues.length > 0) {
+        setError("Complete the following requirements before submitting for review.");
+        setIssues(
+          submissionIssues.map(({ path, message: issueMessage }) => ({
+            path,
+            message: issueMessage
+          }))
+        );
+        return;
+      }
+      setReadyConfirmationOpen(true);
+    } catch (caught) {
+      const apiError = caught as AssessmentApiError;
+      setError(apiError.message ?? "We could not verify that this assessment is ready for review.");
+      setIssues(apiError.issues ?? []);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleReadyForReview() {
     setReadySubmitting(true);
     setError(null);
+    setIssues([]);
     setMessage(null);
     try {
       await markAssessmentReadyForReview(accessToken);
@@ -683,11 +784,12 @@ export function PortalDashboardClient() {
         "Assessment is Ready for Tax Advisor's Review. Savian's Team will reach out to you in case any additional information required."
       );
     } catch (caught) {
-      setError(
-        caught instanceof AssessmentApiError
-          ? caught.message
-          : "We could not submit this assessment for review."
-      );
+      if (caught instanceof AssessmentApiError) {
+        setError(caught.message);
+        setIssues(caught.issues ?? []);
+      } else {
+        setError("We could not submit this assessment for review.");
+      }
     } finally {
       setReadySubmitting(false);
     }
@@ -1805,7 +1907,9 @@ export function PortalDashboardClient() {
           </form>
         ) : null}
 
-        {activeTab === "documents" ? <PortalDocumentsClient embedded /> : null}
+        {activeTab === "documents" ? (
+          <PortalDocumentsClient embedded onDocumentsChanged={handleDocumentsChanged} />
+        ) : null}
       </div>
 
       {readyConfirmationOpen ? (

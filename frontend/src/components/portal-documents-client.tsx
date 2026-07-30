@@ -28,6 +28,7 @@ import {
 } from "@/services/assessment-api";
 import { getCurrentPortalAccessToken } from "@/services/portal-auth";
 import { Button, Card, ErrorAlert, LoadingOverlay, StatusBadge, cn } from "@/components/ui";
+import { isRequiredReviewDocument } from "@/lib/review-readiness";
 
 const maxFileSizeBytes = 25 * 1024 * 1024;
 
@@ -120,7 +121,13 @@ function canInlinePreview(document: AssessmentDocument) {
   return document.mimeType === "application/pdf" || document.mimeType.startsWith("image/");
 }
 
-export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean }) {
+export function PortalDocumentsClient({
+  embedded = false,
+  onDocumentsChanged
+}: {
+  embedded?: boolean;
+  onDocumentsChanged?: (documents: AssessmentDocument[]) => void;
+}) {
   const [documents, setDocuments] = useState<AssessmentDocument[]>([]);
   const [activeCategory, setActiveCategory] = useState<DocumentCategory>("TAX_RETURNS");
   const [dragCategory, setDragCategory] = useState<DocumentCategory | null>(null);
@@ -156,6 +163,7 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
   }, [uploadedDocuments]);
 
   const activeFolder = documentFolders.find((folder) => folder.category === activeCategory) ?? documentFolders[0]!;
+  const activeFolderRequired = isRequiredReviewDocument(activeFolder.category);
   const activeDocuments = documentsByCategory.get(activeCategory) ?? [];
   const isDraggingActiveFolder = dragCategory === activeCategory;
   const isUploadingActiveFolder = uploadingCategory === activeCategory;
@@ -174,12 +182,13 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
       const activeToken = await resolvePortalToken();
       const response = await loadDocuments(activeToken);
       setDocuments(response.documents);
+      onDocumentsChanged?.(response.documents);
     } catch (caught) {
       setError(caught instanceof AssessmentApiError ? caught.message : "We could not load your document list.");
     } finally {
       setLoading(false);
     }
-  }, [resolvePortalToken]);
+  }, [onDocumentsChanged, resolvePortalToken]);
 
   useEffect(() => {
     void refresh();
@@ -234,10 +243,13 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
         completedDocuments.push(completed.document);
       }
 
-      setDocuments((current) => {
-        const uploadedIds = new Set(completedDocuments.map((document) => document.id));
-        return [...completedDocuments, ...current.filter((document) => !uploadedIds.has(document.id))];
-      });
+      const uploadedIds = new Set(completedDocuments.map((document) => document.id));
+      const nextDocuments = [
+        ...completedDocuments,
+        ...documents.filter((document) => !uploadedIds.has(document.id))
+      ];
+      setDocuments(nextDocuments);
+      onDocumentsChanged?.(nextDocuments);
       setMessage(`${pluralize(completedDocuments.length, "document")} uploaded to ${categoryLabels[category]}.`);
       const firstCompletedDocument = completedDocuments[0];
       if (firstCompletedDocument) await openPreview(firstCompletedDocument);
@@ -257,7 +269,9 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
     try {
       const activeToken = await resolvePortalToken();
       await removeDocument(activeToken, document.id);
-      setDocuments((current) => current.filter((item) => item.id !== document.id));
+      const nextDocuments = documents.filter((item) => item.id !== document.id);
+      setDocuments(nextDocuments);
+      onDocumentsChanged?.(nextDocuments);
       if (preview?.document.id === document.id) setPreview(null);
       setMessage(`${document.originalName} was removed from ${categoryLabels[document.category]}.`);
     } catch (caught) {
@@ -345,7 +359,9 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">Document Drive</p>
               <h2 className="mt-1 text-lg font-bold text-navy-800">Categories</h2>
-              <p className="mt-1 text-xs text-slate-500">Work from top to bottom.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Prior Tax Returns and W-2 Income are required before Submit for Review.
+              </p>
             </div>
             <Button type="button" variant="outline" className="min-h-10 px-3" onClick={() => void refresh()} disabled={loading} aria-label="Refresh document categories">
               <RefreshCw aria-hidden size={16} />
@@ -355,6 +371,7 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
           <ol className="mt-4 grid gap-0 lg:min-h-0 lg:flex-1 lg:content-start lg:overflow-y-auto lg:px-1" aria-label="Suggested document upload order">
             {documentFolders.map((folder, index) => {
               const isActive = folder.category === activeCategory;
+              const isRequired = isRequiredReviewDocument(folder.category);
               const stepNumber = String(index + 1).padStart(2, "0");
               return (
                 <li
@@ -366,8 +383,9 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
                     className="document-sequence-card focus-ring group grid min-h-14 w-full grid-cols-[36px_minmax(0,1fr)_24px] items-stretch overflow-hidden rounded-[14px] border text-left"
                     type="button"
                     aria-current={isActive ? "step" : undefined}
-                    aria-label={`Step ${index + 1} of ${documentFolders.length}: ${folder.label}`}
+                    aria-label={`Step ${index + 1} of ${documentFolders.length}: ${folder.label}${isRequired ? " (Required)" : ""}`}
                     data-active={isActive ? "true" : "false"}
+                    data-required={isRequired ? "true" : "false"}
                     onClick={() => {
                       setActiveCategory(folder.category);
                       setError(null);
@@ -376,8 +394,13 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
                     <span aria-hidden className="document-sequence-marker grid place-items-center text-[11px] font-extrabold tracking-[0.08em]">
                       {stepNumber}
                     </span>
-                    <span className="flex min-w-0 items-center px-3 py-2.5">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
                       <span className="document-sequence-title block text-[13px] font-bold leading-[17px]">{folder.label}</span>
+                      {isRequired ? (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-red-700">
+                          Required
+                        </span>
+                      ) : null}
                     </span>
                     <span aria-hidden className="document-sequence-direction grid place-items-center">
                       <ChevronRight className="document-sequence-chevron" size={17} strokeWidth={2.4} />
@@ -404,7 +427,14 @@ export function PortalDocumentsClient({ embedded = false }: { embedded?: boolean
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">Selected Folder</p>
-                <h2 className="mt-2 text-2xl font-bold text-navy-800">{activeFolder.label}</h2>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <h2 className="text-2xl font-bold text-navy-800">{activeFolder.label}</h2>
+                  {activeFolderRequired ? (
+                    <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.08em] text-red-700">
+                      Required for review
+                    </span>
+                  ) : null}
+                </div>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{activeFolder.helper}</p>
               </div>
             </div>

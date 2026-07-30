@@ -1,9 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AssessmentDocument } from "@/services/assessment-api";
 import { PortalDocumentsClient } from "./portal-documents-client";
 
 const api = vi.hoisted(() => ({
-  loadDocuments: vi.fn()
+  loadDocuments: vi.fn(),
+  removeDocument: vi.fn()
 }));
 
 const auth = vi.hoisted(() => ({
@@ -20,6 +22,7 @@ vi.mock("@/services/portal-auth", () => auth);
 beforeEach(() => {
   auth.getCurrentPortalAccessToken.mockResolvedValue("portal-token");
   api.loadDocuments.mockResolvedValue({ documents: [] });
+  api.removeDocument.mockResolvedValue({ ok: true });
 });
 
 afterEach(() => {
@@ -49,15 +52,51 @@ describe("PortalDocumentsClient category sequence", () => {
     expect(sequence.querySelector(".lucide-folder")).not.toBeInTheDocument();
     expect(sequence.querySelector(".lucide-folder-open")).not.toBeInTheDocument();
     expect(sequence.querySelector(".lucide-arrow-down")).not.toBeInTheDocument();
+    expect(within(sequence).getAllByText("Required")).toHaveLength(2);
 
     const firstCategory = within(sequence).getByRole("button", { name: /Step 1 of 10: Prior Tax Returns Documents/ });
     expect(firstCategory).toHaveAttribute("aria-current", "step");
-    expect(firstCategory).toHaveAccessibleName("Step 1 of 10: Prior Tax Returns Documents");
+    expect(firstCategory).toHaveAttribute("data-required", "true");
+    expect(firstCategory).toHaveAccessibleName("Step 1 of 10: Prior Tax Returns Documents (Required)");
+    expect(screen.getByText("Required for review")).toBeInTheDocument();
 
     fireEvent.click(within(sequence).getByRole("button", { name: /Step 2 of 10: W-2 Income Documents/ }));
     expect(screen.getByRole("heading", { name: "W-2 Income Documents" })).toBeInTheDocument();
     expect(within(sequence).getByRole("button", { name: /Step 2 of 10: W-2 Income Documents/ })).toHaveAttribute("aria-current", "step");
+    expect(within(sequence).getByRole("button", { name: /Step 3 of 10: Other Income Documents/ })).toHaveAttribute("data-required", "false");
     expect(sequence.querySelectorAll("[aria-current='step']")).toHaveLength(1);
     expect(container.querySelector("[aria-label='Refresh document categories']")).toBeInTheDocument();
+  });
+
+  it("keeps the parent dashboard in sync when documents load or are removed", async () => {
+    const taxReturnDocument: AssessmentDocument = {
+      id: "document-1",
+      category: "TAX_RETURNS",
+      status: "UPLOADED",
+      originalName: "tax-return.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      createdAt: "2026-07-30T12:00:00.000Z",
+      updatedAt: "2026-07-30T12:00:00.000Z"
+    };
+    const onDocumentsChanged = vi.fn();
+    api.loadDocuments.mockResolvedValue({ documents: [taxReturnDocument] });
+
+    render(
+      <PortalDocumentsClient
+        embedded
+        onDocumentsChanged={onDocumentsChanged}
+      />
+    );
+
+    await waitFor(() =>
+      expect(onDocumentsChanged).toHaveBeenCalledWith([taxReturnDocument])
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove tax-return.pdf" }));
+
+    await waitFor(() =>
+      expect(api.removeDocument).toHaveBeenCalledWith("portal-token", "document-1")
+    );
+    expect(onDocumentsChanged).toHaveBeenLastCalledWith([]);
   });
 });

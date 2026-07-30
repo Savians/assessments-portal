@@ -62,11 +62,11 @@ const dashboard: PortalDashboardResponse = {
     city: "Austin",
     state: "TX",
     zip: "78701",
-    homeowner: true,
+    homeowner: false,
     maritalStatus: "SINGLE",
     preferredContact: "",
     residentStatus: "US_CITIZEN",
-    ownsRealEstate: true,
+    ownsRealEstate: false,
     ownsBusiness: false,
     lastYearTaxableIncome: null,
     projectedTaxableIncome: null,
@@ -89,8 +89,9 @@ const dashboard: PortalDashboardResponse = {
   properties: [],
   businessInvestments: [],
   documentSummary: {
-    uploadedCount: 1,
-    uploadedBytes: 1024,
+    uploadedCount: 2,
+    uploadedBytes: 2048,
+    uploadedCategories: ["TAX_RETURNS", "W2_INCOME"],
     recentDocuments: []
   }
 };
@@ -325,6 +326,83 @@ describe("PortalDashboardClient", () => {
     expect(api.savePortalBusinessInvestments).toHaveBeenCalledWith("portal-token", []);
   });
 
+  it.each([
+    {
+      ownershipField: "Homeowner?",
+      profile: { homeowner: true, ownsRealEstate: false }
+    },
+    {
+      ownershipField: "Own Real Estate?",
+      profile: { homeowner: false, ownsRealEstate: true }
+    }
+  ])(
+    "blocks Business and Entity Intake when $ownershipField is Yes and no property exists",
+    async ({ profile }) => {
+      const ownershipDashboard: PortalDashboardResponse = {
+        ...dashboard,
+        profile: { ...dashboard.profile, ...profile }
+      };
+      api.loadPortalDashboard.mockResolvedValue(ownershipDashboard);
+      api.savePortalProfile.mockResolvedValue(ownershipDashboard);
+
+      render(<PortalDashboardClient />);
+      expect(await screen.findByRole("heading", { name: "Kiro Savians" })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /Business And Entity Intake/ }));
+
+      expect(
+        await screen.findByText(
+          "Add at least one real estate record because Homeowner? or Own Real Estate? is set to Yes."
+        )
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Add Entity" })).not.toBeInTheDocument();
+    }
+  );
+
+  it("blocks Document Upload Requirements when business ownership is Yes and no entity exists", async () => {
+    const businessOwnerDashboard: PortalDashboardResponse = {
+      ...dashboard,
+      profile: { ...dashboard.profile, ownsBusiness: true }
+    };
+    api.loadPortalDashboard.mockResolvedValue(businessOwnerDashboard);
+    api.savePortalProfile.mockResolvedValue(businessOwnerDashboard);
+
+    render(<PortalDashboardClient />);
+    expect(await screen.findByRole("heading", { name: "Kiro Savians" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Document Upload Requirements/ }));
+
+    expect(
+      await screen.findByText(
+        "Add at least one business or entity record because Own A Business? is set to Yes."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Document uploader")).not.toBeInTheDocument();
+  });
+
+  it("uses the freshly saved dashboard when checking forward navigation", async () => {
+    const updatedDashboard: PortalDashboardResponse = {
+      ...dashboard,
+      profile: { ...dashboard.profile, homeowner: true }
+    };
+    api.loadPortalDashboard
+      .mockResolvedValueOnce(dashboard)
+      .mockResolvedValueOnce(updatedDashboard);
+    api.savePortalProfile.mockResolvedValue(updatedDashboard);
+
+    render(<PortalDashboardClient />);
+    expect(await screen.findByRole("heading", { name: "Kiro Savians" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Business And Entity Intake/ }));
+
+    expect(
+      await screen.findByText(
+        "Add at least one real estate record because Homeowner? or Own Real Estate? is set to Yes."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Entity" })).not.toBeInTheDocument();
+  });
+
   it("autosaves edits when switching to an earlier tab", async () => {
     const propertyDashboard: PortalDashboardResponse = {
       ...dashboard,
@@ -410,5 +488,40 @@ describe("PortalDashboardClient", () => {
         "Assessment is Ready for Tax Advisor's Review. Savian's Team will reach out to you in case any additional information required."
       )
     ).toBeInTheDocument();
+  });
+
+  it("blocks review submission and lists every missing record and document requirement", async () => {
+    const incompleteDashboard: PortalDashboardResponse = {
+      ...dashboard,
+      profile: {
+        ...dashboard.profile,
+        homeowner: true,
+        ownsRealEstate: false,
+        ownsBusiness: true
+      },
+      documentSummary: {
+        uploadedCount: 0,
+        uploadedBytes: 0,
+        uploadedCategories: [],
+        recentDocuments: []
+      }
+    };
+    api.loadPortalDashboard.mockResolvedValue(incompleteDashboard);
+    api.savePortalProfile.mockResolvedValue(incompleteDashboard);
+
+    render(<PortalDashboardClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Submit for Review" }));
+
+    expect(
+      await screen.findByText(
+        "Complete the following requirements before submitting for review."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Add at least one real estate record/)).toBeInTheDocument();
+    expect(screen.getByText(/Add at least one business or entity record/)).toBeInTheDocument();
+    expect(screen.getByText(/Upload at least one Prior Tax Returns document/)).toBeInTheDocument();
+    expect(screen.getByText(/Upload at least one W-2 Income document/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(api.markAssessmentReadyForReview).not.toHaveBeenCalled();
   });
 });

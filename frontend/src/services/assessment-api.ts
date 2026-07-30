@@ -407,6 +407,7 @@ export interface PortalDashboardResponse extends PortalProfileResponse {
   documentSummary: {
     uploadedCount: number;
     uploadedBytes: number;
+    uploadedCategories: DocumentCategory[];
     recentDocuments: Array<{
       id: string;
       category: DocumentCategory;
@@ -499,7 +500,15 @@ export async function markAssessmentReadyForReview(accessToken: string): Promise
     cache: "no-store"
   });
   const body = (await response.json()) as { ok: true; status: string; emailStatus: string } | ApiErrorBody;
-  if (!response.ok) throw new AssessmentApiError((body as ApiErrorBody).message ?? "We could not mark this assessment ready for review.");
+  if (!response.ok) {
+    const error = body as ApiErrorBody;
+    throw new AssessmentApiError(
+      error.message ?? "We could not mark this assessment ready for review.",
+      error.issues,
+      error.error,
+      response.status
+    );
+  }
   return body as { ok: true; status: string; emailStatus: string };
 }
 
