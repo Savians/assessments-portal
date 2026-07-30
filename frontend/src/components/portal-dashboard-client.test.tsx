@@ -166,7 +166,7 @@ afterEach(() => {
 });
 
 describe("PortalDashboardClient", () => {
-  it("uses a compact responsive intake navigator without section or tile descriptions", async () => {
+  it("uses a full-width responsive intake navigator without section or tile descriptions", async () => {
     const { container } = render(<PortalDashboardClient />);
 
     const dashboardHeading = await screen.findByRole("heading", { name: "Kiro Savians" });
@@ -178,8 +178,9 @@ describe("PortalDashboardClient", () => {
 
     expect(container.firstElementChild).toHaveClass("py-6", "sm:py-8");
     expect(dashboardHeading.closest("section")).toHaveClass("p-0");
-    expect(intakeCard).toHaveClass("mt-4", "p-5", "lg:w-1/2");
-    expect(personalTile.parentElement).toHaveClass("sm:grid-cols-2");
+    expect(intakeCard).toHaveClass("mt-4", "w-full", "p-5");
+    expect(intakeCard).not.toHaveClass("lg:w-1/2", "xl:w-1/2");
+    expect(personalTile.parentElement).toHaveClass("sm:grid-cols-2", "lg:grid-cols-4");
     expect(personalTile).toHaveClass("min-h-20", "items-center");
     expect(intakeCard).not.toHaveTextContent(/\bsections\b/i);
     expect(

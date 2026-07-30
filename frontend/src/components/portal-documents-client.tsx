@@ -141,7 +141,6 @@ export function PortalDocumentsClient({
   const [error, setError] = useState<string | null>(null);
 
   const uploadedDocuments = useMemo(() => documents.filter(isUploaded), [documents]);
-  const uploadedCount = uploadedDocuments.length;
 
   const documentsByCategory = useMemo(() => {
     const grouped = new Map<DocumentCategory, AssessmentDocument[]>();
@@ -314,24 +313,8 @@ export function PortalDocumentsClient({
           }
         />
       )}
-      <Card className={cn(embedded ? "overflow-hidden bg-gradient-to-r from-white via-white to-navy-50/80 p-0" : "mt-8 overflow-hidden bg-gradient-to-r from-white via-white to-navy-50/80 p-0")}>
-        <div className="p-6">
-          <div className="min-w-0">
-            <StatusBadge status={uploadedCount > 0 ? "complete" : "active"}>
-              {uploadedCount > 0 ? `${uploadedCount} uploaded` : "Ready for documents"}
-            </StatusBadge>
-            <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-end">
-              <h1 className="text-3xl font-bold text-navy-800">Upload Documents</h1>
-              <p className="text-sm leading-6 text-slate-600 lg:pb-1">
-                Securely upload, preview, and manage your assessment files by category.
-              </p>
-            </div>
-          </div>
-        </div>
-      </Card>
-
       {error || message ? (
-        <div className="mt-4 grid gap-3">
+        <div className="grid gap-3">
           {error ? <ErrorAlert>{error}</ErrorAlert> : null}
           {message ? (
             <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
@@ -342,7 +325,12 @@ export function PortalDocumentsClient({
         </div>
       ) : null}
 
-      <div className="mt-4 grid gap-5 lg:items-stretch lg:grid-cols-[290px_minmax(0,1fr)]">
+      <div
+        className={cn(
+          "grid gap-5 lg:items-stretch lg:grid-cols-[290px_minmax(0,1fr)]",
+          (error || message) && "mt-4"
+        )}
+      >
         <Card className="flex min-h-0 flex-col p-4 lg:[contain:size]">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -434,13 +422,6 @@ export function PortalDocumentsClient({
               <span className="inline-flex min-h-9 items-center rounded-full bg-slate-100 px-3 text-xs font-semibold text-slate-600">
                 Max 25 MB per file
               </span>
-              <label
-                className="focus-ring inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg bg-navy-800 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-700"
-                htmlFor={activeInputId}
-              >
-                <Plus aria-hidden size={17} />
-                Add Files
-              </label>
               <input
                 id={activeInputId}
                 className="sr-only"

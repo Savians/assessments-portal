@@ -976,7 +976,7 @@ export function PortalDashboardClient() {
         </div>
       ) : null}
 
-      <Card className="mt-4 p-5 lg:w-1/2">
+      <Card className="mt-4 w-full p-5">
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-700">
             Assessment Intake
@@ -985,7 +985,7 @@ export function PortalDashboardClient() {
             Switch between intake areas and save each one as you complete it.
           </p>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;

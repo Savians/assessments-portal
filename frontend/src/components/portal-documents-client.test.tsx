@@ -72,8 +72,18 @@ describe("PortalDocumentsClient category sequence", () => {
     expect(screen.queryByText("Files", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("Uploaded", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("Limit", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Upload Documents" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Securely upload, preview, and manage your assessment files by category.")
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Add Files", { exact: true })).not.toBeInTheDocument();
     expect(screen.getByText("Max 25 MB per file")).toBeInTheDocument();
-    expect(categoriesPanel?.parentElement).toHaveClass("mt-4", "gap-5");
+    expect(screen.getByText("0 files")).toBeInTheDocument();
+    const browseInput = screen.getByLabelText("Browse Files");
+    expect(browseInput).toHaveAttribute("type", "file");
+    expect(browseInput).toHaveClass("sr-only");
+    expect(categoriesPanel?.parentElement).toHaveClass("gap-5");
+    expect(categoriesPanel?.parentElement).not.toHaveClass("mt-4");
 
     const firstCategory = within(sequence).getByRole("button", { name: /Step 1 of 10: Prior Tax Returns Documents/ });
     expect(firstCategory).toHaveAttribute("aria-current", "step");
