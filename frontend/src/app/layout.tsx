@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
-import Image from "next/image";
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { APP_NAME } from "@/lib/constants";
 import { AppProviders } from "@/providers/app-providers";
-import { HeaderAction } from "@/components/header-action";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,27 +22,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       </head>
       <body>
         <AppProviders>
-          <header className="border-b border-slate-200 bg-white">
-            <div className="page-shell flex min-h-16 items-center justify-between gap-4">
-              <Link className="focus-ring inline-flex items-center" href="/" aria-label="Savians Tax Advisors home">
-                <Image
-                  src="/savians-logo.png"
-                  alt="Savians Tax Advisors"
-                  width={1996}
-                  height={773}
-                  priority
-                  className="h-10 w-auto sm:h-12"
-                />
-              </Link>
-              <div className="flex items-center gap-3 sm:gap-5">
-                <ThemeToggle />
-                <HeaderAction />
-                <span className="hidden text-sm text-slate-500 md:block">
-                  Secure Tax Assessment Portal
-                </span>
-              </div>
-            </div>
-          </header>
+          <SiteHeader />
           <main>{children}</main>
           <footer className="border-t border-slate-200 bg-white py-8 text-sm text-slate-500">
             <div className="page-shell flex flex-col justify-between gap-2 sm:flex-row">
