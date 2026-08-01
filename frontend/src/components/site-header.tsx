@@ -77,54 +77,56 @@ function SignOnLink() {
 
 export function SiteHeader() {
   return (
-    <header className="border-b border-slate-200 bg-white pb-2 sm:px-4 sm:pb-3 sm:pt-3">
-      <nav
-        className="savians-brand-header mx-auto flex min-h-[73px] w-full max-w-[1728px] items-center bg-[#ffcc57] px-4 py-3 text-navy-900 sm:min-h-16 sm:rounded-[20px] sm:px-5 sm:py-2"
-        aria-label="Primary navigation"
-      >
-        <a
-          className="focus-ring inline-flex shrink-0 items-center"
-          href="https://savians.com/"
-          aria-label="Savians home"
+    <>
+      <header className="border-b border-slate-200 bg-white sm:px-4 sm:pt-3">
+        <nav
+          className="savians-brand-header mx-auto flex min-h-[73px] w-full max-w-[1728px] items-center bg-[#ffcc57] px-4 py-3 text-navy-900 sm:min-h-16 sm:rounded-[20px] sm:px-5 sm:py-2"
+          aria-label="Primary navigation"
         >
-          <Image
-            src="/savians-logo.png"
-            alt="Savians Tax Advisors"
-            width={1996}
-            height={773}
-            priority
-            className="h-10 w-auto sm:h-12"
-          />
-        </a>
+          <a
+            className="focus-ring inline-flex shrink-0 items-center"
+            href="https://savians.com/"
+            aria-label="Savians home"
+          >
+            <Image
+              src="/savians-logo.png"
+              alt="Savians Tax Advisors"
+              width={1996}
+              height={773}
+              priority
+              className="h-10 w-auto sm:h-12"
+            />
+          </a>
 
-        <div
-          className="ml-5 hidden min-w-0 flex-1 items-center justify-end gap-4 xl:flex 2xl:gap-8"
-          role="group"
-          aria-label="Desktop navigation"
-        >
-          <NavigationLinks />
-        </div>
-
-        <div className="ml-auto flex shrink-0 items-center gap-2 xl:ml-4">
-          <ThemeToggle />
-          <SignOnLink />
-          <ReferralPartnerLink />
-        </div>
-
-        <details className="group relative ml-2 xl:hidden">
-          <summary className="focus-ring inline-grid size-11 cursor-pointer list-none place-items-center rounded-lg border border-[#1a244d]/25 bg-transparent text-[#1a244d] transition hover:bg-white/40 [&::-webkit-details-marker]:hidden">
-            <Menu aria-hidden size={22} />
-            <span className="sr-only">Open navigation menu</span>
-          </summary>
-          <div className="savians-mobile-menu absolute right-0 z-50 mt-3 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-[#1a244d]/20 bg-[#ffcc57] p-4 text-[#1a244d] shadow-card">
-            <NavigationLinks mobile />
-            <ReferralPartnerLink mobile />
+          <div
+            className="ml-5 hidden min-w-0 flex-1 items-center justify-end gap-4 xl:flex 2xl:gap-8"
+            role="group"
+            aria-label="Desktop navigation"
+          >
+            <NavigationLinks />
           </div>
-        </details>
-      </nav>
+
+          <div className="ml-auto flex shrink-0 items-center gap-2 xl:ml-4">
+            <ThemeToggle />
+            <SignOnLink />
+            <ReferralPartnerLink />
+          </div>
+
+          <details className="group relative ml-2 xl:hidden">
+            <summary className="focus-ring inline-grid size-11 cursor-pointer list-none place-items-center rounded-lg border border-[#1a244d]/25 bg-transparent text-[#1a244d] transition hover:bg-white/40 [&::-webkit-details-marker]:hidden">
+              <Menu aria-hidden size={22} />
+              <span className="sr-only">Open navigation menu</span>
+            </summary>
+            <div className="savians-mobile-menu absolute right-0 z-50 mt-3 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-[#1a244d]/20 bg-[#ffcc57] p-4 text-[#1a244d] shadow-card">
+              <NavigationLinks mobile />
+              <ReferralPartnerLink mobile />
+            </div>
+          </details>
+        </nav>
+      </header>
       <div className="mx-auto flex w-full max-w-[1728px] justify-end px-4 pt-2 sm:px-5">
         <ConsultationLink />
       </div>
-    </header>
+    </>
   );
 }

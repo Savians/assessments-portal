@@ -60,6 +60,7 @@ describe("SiteHeader", () => {
     expect(consultationLink).toHaveAttribute("href", "https://calendly.com/contactus-savians/30min");
     expect(consultationLink).toHaveAttribute("target", "_blank");
     expect(consultationLink.closest("nav")).toBeNull();
+    expect(consultationLink.closest("header")).toBeNull();
 
     expect(screen.queryByRole("link", { name: /Back to Home/i })).not.toBeInTheDocument();
 
