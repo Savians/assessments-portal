@@ -1,7 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Menu } from "lucide-react";
-import { HeaderAction } from "@/components/header-action";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const navigationLinks = [
@@ -49,9 +48,36 @@ function ConsultationLink({ mobile = false }: { mobile?: boolean }) {
   );
 }
 
+function ReferralPartnerLink({ mobile = false }: { mobile?: boolean }) {
+  return (
+    <a
+      className={[
+        "focus-ring inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg border border-[#1a244d] px-4 py-2.5 text-sm font-semibold text-[#1a244d] transition hover:bg-white/40",
+        mobile ? "mt-4 w-full" : "hidden whitespace-nowrap xl:inline-flex"
+      ].join(" ")}
+      href="https://referrals.savians.com/"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      Become Our Referral Partner
+    </a>
+  );
+}
+
+function SignOnLink() {
+  return (
+    <Link
+      className="focus-ring inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-[#1a244d] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-[#14235c] sm:px-4"
+      href="/login"
+    >
+      Sign On
+    </Link>
+  );
+}
+
 export function SiteHeader() {
   return (
-    <header className="border-b border-slate-200 bg-white py-0 sm:px-4 sm:py-3">
+    <header className="border-b border-slate-200 bg-white pb-2 sm:px-4 sm:pb-3 sm:pt-3">
       <nav
         className="savians-brand-header mx-auto flex min-h-[73px] w-full max-w-[1728px] items-center bg-[#ffcc57] px-4 py-3 text-navy-900 sm:min-h-16 sm:rounded-[20px] sm:px-5 sm:py-2"
         aria-label="Primary navigation"
@@ -81,12 +107,8 @@ export function SiteHeader() {
 
         <div className="ml-auto flex shrink-0 items-center gap-2 xl:ml-4">
           <ThemeToggle />
-          <div className="[&_a]:size-11 [&_a]:justify-center [&_a]:px-0 [&_a_span]:hidden sm:[&_a]:h-auto sm:[&_a]:w-auto sm:[&_a]:px-4 sm:[&_a_span]:inline">
-            <HeaderAction />
-          </div>
-          <div className="hidden xl:block">
-            <ConsultationLink />
-          </div>
+          <SignOnLink />
+          <ReferralPartnerLink />
         </div>
 
         <details className="group relative ml-2 xl:hidden">
@@ -96,10 +118,13 @@ export function SiteHeader() {
           </summary>
           <div className="savians-mobile-menu absolute right-0 z-50 mt-3 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-[#1a244d]/20 bg-[#ffcc57] p-4 text-[#1a244d] shadow-card">
             <NavigationLinks mobile />
-            <ConsultationLink mobile />
+            <ReferralPartnerLink mobile />
           </div>
         </details>
       </nav>
+      <div className="mx-auto flex w-full max-w-[1728px] justify-end px-4 pt-2 sm:px-5">
+        <ConsultationLink />
+      </div>
     </header>
   );
 }

@@ -1,11 +1,6 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import Link from "next/link";
 import { SiteHeader } from "./site-header";
-
-vi.mock("@/components/header-action", () => ({
-  HeaderAction: () => <Link href="/login">Login / Resume</Link>
-}));
 
 vi.mock("@/components/theme-toggle", () => ({
   ThemeToggle: () => <button type="button">Switch theme</button>
@@ -47,19 +42,26 @@ describe("SiteHeader", () => {
     expect(within(desktopNavigation).queryByRole("link", { name: "Blogs" })).not.toBeInTheDocument();
   });
 
-  it("restores portal actions and keeps a compact mobile navigation", () => {
+  it("provides the shared portal actions and keeps a compact mobile navigation", () => {
     render(<SiteHeader />);
 
     expect(screen.getByText("Open navigation menu")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Login / Resume" })).toHaveAttribute("href", "/login");
+    expect(screen.getByRole("link", { name: "Sign On" })).toHaveAttribute("href", "/login");
     expect(screen.getByRole("button", { name: "Switch theme" })).toBeInTheDocument();
 
-    const consultationLinks = screen.getAllByRole("link", { name: "Schedule a Consultation" });
-    expect(consultationLinks).toHaveLength(2);
-    for (const link of consultationLinks) {
-      expect(link).toHaveAttribute("href", "https://calendly.com/contactus-savians/30min");
+    const referralLinks = screen.getAllByRole("link", { name: "Become Our Referral Partner" });
+    expect(referralLinks).toHaveLength(2);
+    for (const link of referralLinks) {
+      expect(link).toHaveAttribute("href", "https://referrals.savians.com/");
       expect(link).toHaveAttribute("target", "_blank");
     }
+
+    const consultationLink = screen.getByRole("link", { name: "Schedule a Consultation" });
+    expect(consultationLink).toHaveAttribute("href", "https://calendly.com/contactus-savians/30min");
+    expect(consultationLink).toHaveAttribute("target", "_blank");
+    expect(consultationLink.closest("nav")).toBeNull();
+
+    expect(screen.queryByRole("link", { name: /Back to Home/i })).not.toBeInTheDocument();
 
     expect(screen.getByRole("navigation", { name: "Primary navigation" })).toHaveClass(
       "max-w-[1728px]",

@@ -26,4 +26,23 @@ describe("ThemeToggle", () => {
     expect(setItem).toHaveBeenCalledWith(THEME_STORAGE_KEY, "dark");
     await waitFor(() => expect(toggle).toHaveAccessibleName("Switch to light theme"));
   });
+
+  it("allows the default dark theme to be changed to a persistent light preference", async () => {
+    const setItem = vi.fn();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: { setItem }
+    });
+    document.documentElement.classList.add("dark");
+    document.documentElement.style.colorScheme = "dark";
+
+    render(<ThemeToggle />);
+    const toggle = await screen.findByRole("button", { name: "Switch to light theme" });
+    fireEvent.click(toggle);
+
+    expect(document.documentElement).not.toHaveClass("dark");
+    expect(document.documentElement.style.colorScheme).toBe("light");
+    expect(setItem).toHaveBeenCalledWith(THEME_STORAGE_KEY, "light");
+    await waitFor(() => expect(toggle).toHaveAccessibleName("Switch to dark theme"));
+  });
 });

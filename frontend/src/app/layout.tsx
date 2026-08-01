@@ -16,7 +16,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var key='savians-assessment-theme';var saved=localStorage.getItem(key);var dark=saved?saved==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',dark);document.documentElement.style.colorScheme=dark?'dark':'light';}catch(e){}})();`
+            __html: `(function(){var dark=true;try{var key='savians-assessment-theme';var saved=localStorage.getItem(key);dark=saved?saved==='dark':true;}catch(e){}document.documentElement.classList.toggle('dark',dark);document.documentElement.style.colorScheme=dark?'dark':'light';})();`
           }}
         />
       </head>
