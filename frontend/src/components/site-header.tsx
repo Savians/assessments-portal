@@ -36,7 +36,7 @@ function ConsultationLink({ mobile = false }: { mobile?: boolean }) {
   return (
     <a
       className={[
-        "focus-ring inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-[#1a244d] px-5 py-2.5 text-sm font-normal text-white transition hover:bg-[#14235c] 2xl:text-base",
+        "focus-ring inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-[#ffcc57] px-5 py-2.5 text-sm font-semibold text-[#1a244d] shadow-sm transition hover:bg-[#f2bd3d] focus-visible:outline-[#1a244d] 2xl:text-base",
         mobile ? "mt-4 w-full" : "whitespace-nowrap"
       ].join(" ")}
       href="https://calendly.com/contactus-savians/30min"

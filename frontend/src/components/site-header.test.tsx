@@ -61,6 +61,12 @@ describe("SiteHeader", () => {
     expect(consultationLink).toHaveAttribute("target", "_blank");
     expect(consultationLink.closest("nav")).toBeNull();
     expect(consultationLink.closest("header")).toBeNull();
+    expect(consultationLink).toHaveClass(
+      "bg-[#ffcc57]",
+      "text-[#1a244d]",
+      "hover:bg-[#f2bd3d]",
+      "focus-visible:outline-[#1a244d]"
+    );
 
     expect(screen.queryByRole("link", { name: /Back to Home/i })).not.toBeInTheDocument();
 
