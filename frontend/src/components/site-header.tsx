@@ -1,8 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Menu } from "lucide-react";
-
-const SAVIANS_LOGO_URL = "https://savians.com/images/logo.svg";
+import { HeaderAction } from "@/components/header-action";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const navigationLinks = [
   { label: "Home", href: "https://savians.com/", current: false },
@@ -62,26 +62,34 @@ export function SiteHeader() {
           aria-label="Savians home"
         >
           <Image
-            src={SAVIANS_LOGO_URL}
-            alt="Savians"
-            width={182}
-            height={47}
+            src="/savians-logo.png"
+            alt="Savians Tax Advisors"
+            width={1996}
+            height={773}
             priority
-            unoptimized
-            className="savians-brand-logo h-auto"
+            className="h-10 w-auto sm:h-12"
           />
         </a>
 
         <div
-          className="ml-5 hidden min-w-0 flex-1 items-center justify-end gap-4 lg:flex 2xl:gap-8"
+          className="ml-5 hidden min-w-0 flex-1 items-center justify-end gap-4 xl:flex 2xl:gap-8"
           role="group"
           aria-label="Desktop navigation"
         >
           <NavigationLinks />
-          <ConsultationLink />
         </div>
 
-        <details className="group relative ml-auto lg:hidden">
+        <div className="ml-auto flex shrink-0 items-center gap-2 xl:ml-4">
+          <ThemeToggle />
+          <div className="[&_a]:size-11 [&_a]:justify-center [&_a]:px-0 [&_a_span]:hidden sm:[&_a]:h-auto sm:[&_a]:w-auto sm:[&_a]:px-4 sm:[&_a_span]:inline">
+            <HeaderAction />
+          </div>
+          <div className="hidden xl:block">
+            <ConsultationLink />
+          </div>
+        </div>
+
+        <details className="group relative ml-2 xl:hidden">
           <summary className="focus-ring inline-grid size-11 cursor-pointer list-none place-items-center rounded-lg border border-[#1a244d]/25 bg-transparent text-[#1a244d] transition hover:bg-white/40 [&::-webkit-details-marker]:hidden">
             <Menu aria-hidden size={22} />
             <span className="sr-only">Open navigation menu</span>

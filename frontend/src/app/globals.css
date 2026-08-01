@@ -125,9 +125,6 @@ a { color: inherit; text-decoration: none; }
   color: #1a244d;
   font-family: "Barlow", Arial, Helvetica, sans-serif;
 }
-.savians-brand-logo {
-  width: min(11.375rem, 48vw);
-}
 .dark .savians-brand-header,
 .dark .savians-brand-header .savians-main-link { color: #1a244d; }
 

@@ -1,6 +1,15 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import Link from "next/link";
 import { SiteHeader } from "./site-header";
+
+vi.mock("@/components/header-action", () => ({
+  HeaderAction: () => <Link href="/login">Login / Resume</Link>
+}));
+
+vi.mock("@/components/theme-toggle", () => ({
+  ThemeToggle: () => <button type="button">Switch theme</button>
+}));
 
 afterEach(cleanup);
 
@@ -8,12 +17,12 @@ describe("SiteHeader", () => {
   it("uses the official Savians logo and main-site navigation", () => {
     render(<SiteHeader />);
 
-    const logo = screen.getByRole("img", { name: "Savians" });
-    expect(logo).toHaveAttribute("src", "https://savians.com/images/logo.svg");
+    const logo = screen.getByRole("img", { name: "Savians Tax Advisors" });
+    expect(decodeURIComponent(logo.getAttribute("src") ?? "")).toContain("/savians-logo.png");
     expect(logo.closest("a")).toHaveAttribute("href", "https://savians.com/");
 
     const desktopNavigation = screen.getByRole("group", { name: "Desktop navigation" });
-    expect(desktopNavigation).toHaveClass("lg:flex");
+    expect(desktopNavigation).toHaveClass("xl:flex");
     expect(within(desktopNavigation).getByRole("link", { name: "Home" })).toHaveAttribute(
       "href",
       "https://savians.com/"
@@ -38,12 +47,12 @@ describe("SiteHeader", () => {
     expect(within(desktopNavigation).queryByRole("link", { name: "Blogs" })).not.toBeInTheDocument();
   });
 
-  it("matches the main-site actions and keeps a compact mobile navigation", () => {
+  it("restores portal actions and keeps a compact mobile navigation", () => {
     render(<SiteHeader />);
 
     expect(screen.getByText("Open navigation menu")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Login / Resume" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Switch theme" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Login / Resume" })).toHaveAttribute("href", "/login");
+    expect(screen.getByRole("button", { name: "Switch theme" })).toBeInTheDocument();
 
     const consultationLinks = screen.getAllByRole("link", { name: "Schedule a Consultation" });
     expect(consultationLinks).toHaveLength(2);

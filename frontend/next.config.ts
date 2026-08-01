@@ -4,15 +4,6 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   typedRoutes: true,
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "savians.com",
-        pathname: "/images/logo.svg"
-      }
-    ]
-  },
   async headers() {
     return [
       {
