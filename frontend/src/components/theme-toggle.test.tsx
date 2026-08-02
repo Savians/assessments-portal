@@ -18,6 +18,8 @@ describe("ThemeToggle", () => {
     render(<ThemeToggle />);
     const toggle = await screen.findByRole("button", { name: "Switch to dark theme" });
     expect(screen.queryByText(/mode/i)).not.toBeInTheDocument();
+    expect(toggle).toHaveClass("size-11", "bg-[#0f1b4d]", "text-white");
+    expect(toggle.querySelector("svg")).toHaveAttribute("width", "16");
 
     fireEvent.click(toggle);
 

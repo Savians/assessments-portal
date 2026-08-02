@@ -42,6 +42,19 @@ describe("SiteHeaderAccountAction", () => {
       "href",
       "/login"
     );
+    expect(screen.getByRole("link", { name: "Sign On" })).toHaveClass(
+      "h-11",
+      "gap-2",
+      "bg-[#1a244d]",
+      "font-normal",
+      "min-[1500px]:w-[7.25rem]",
+      "min-[1500px]:px-0",
+      "min-[1600px]:text-base"
+    );
+    expect(screen.getByRole("link", { name: "Sign On" }).querySelector("svg")).toHaveAttribute(
+      "width",
+      "16"
+    );
   });
 
   it.each(["ADMIN", "SUPER_ADMIN", "ASSESSMENT_CLIENT"])(
@@ -57,7 +70,17 @@ describe("SiteHeaderAccountAction", () => {
 
       render(<SiteHeaderAccountAction />);
 
-      expect(await screen.findByRole("button", { name: "Log Out" })).toBeInTheDocument();
+      const logout = await screen.findByRole("button", { name: "Log Out" });
+      expect(logout).toBeInTheDocument();
+      expect(logout).toHaveClass(
+        "h-11",
+        "bg-[#1a244d]",
+        "font-normal",
+        "min-[1500px]:w-[7.25rem]",
+        "min-[1500px]:px-0",
+        "min-[1600px]:text-base"
+      );
+      expect(logout.querySelector("svg")).toHaveAttribute("width", "16");
       expect(screen.queryByRole("link", { name: "Sign On" })).not.toBeInTheDocument();
     }
   );

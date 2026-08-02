@@ -24,7 +24,7 @@ describe("SiteHeader", () => {
     expect(logo.closest("a")).toHaveAttribute("href", "https://savians.com/");
 
     const desktopNavigation = screen.getByRole("group", { name: "Desktop navigation" });
-    expect(desktopNavigation).toHaveClass("xl:flex");
+    expect(desktopNavigation).toHaveClass("min-[1500px]:flex", "justify-center");
     expect(within(desktopNavigation).getByRole("link", { name: "Home" })).toHaveAttribute(
       "href",
       "https://savians.com/"
@@ -62,6 +62,14 @@ describe("SiteHeader", () => {
     for (const link of referralLinks) {
       expect(link).toHaveAttribute("href", "https://referrals.savians.com/");
       expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveClass(
+        "h-11",
+        "bg-[#1a244d]",
+        "font-normal",
+        "text-white",
+        "min-[1600px]:px-5",
+        "min-[1600px]:text-base"
+      );
     }
 
     expect(screen.queryByRole("link", { name: "Schedule a Consultation" })).not.toBeInTheDocument();
@@ -70,7 +78,14 @@ describe("SiteHeader", () => {
 
     expect(screen.getByRole("navigation", { name: "Primary navigation" })).toHaveClass(
       "max-w-[1728px]",
-      "bg-[#ffcc57]"
+      "bg-[#ffcc57]",
+      "min-[1500px]:grid",
+      "min-[1500px]:h-[63px]",
+      "min-[1500px]:min-h-[63px]",
+      "min-[1500px]:w-[90%]",
+      "min-[1500px]:max-w-none",
+      "min-[1500px]:grid-cols-[auto_minmax(0,1fr)_auto]",
+      "min-[1500px]:py-0"
     );
   });
 });
