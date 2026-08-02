@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { APP_NAME } from "@/lib/constants";
 import { AppProviders } from "@/providers/app-providers";
 import { SiteHeader } from "@/components/site-header";
+import { HomeConsultationLink } from "@/components/home-consultation-link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       <body>
         <AppProviders>
           <SiteHeader />
+          <HomeConsultationLink />
           <main>{children}</main>
           <footer className="border-t border-slate-200 bg-white py-8 text-sm text-slate-500">
             <div className="page-shell flex flex-col justify-between gap-2 sm:flex-row">

@@ -6,6 +6,13 @@ vi.mock("@/components/theme-toggle", () => ({
   ThemeToggle: () => <button type="button">Switch theme</button>
 }));
 
+vi.mock("@/components/site-header-account-action", async () => {
+  const { default: Link } = await import("next/link");
+  return {
+    SiteHeaderAccountAction: () => <Link href="/login">Sign On</Link>
+  };
+});
+
 afterEach(cleanup);
 
 describe("SiteHeader", () => {
@@ -26,10 +33,9 @@ describe("SiteHeader", () => {
       "href",
       "https://savians.com/about-us/"
     );
-    expect(within(desktopNavigation).getByRole("link", { name: "Start Tax Assessment" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    expect(
+      within(desktopNavigation).getByRole("link", { name: "Start Tax Assessment" })
+    ).toHaveAttribute("aria-current", "page");
     expect(within(desktopNavigation).getByRole("link", { name: "Services" })).toHaveAttribute(
       "href",
       "https://savians.com/services/"
@@ -39,7 +45,9 @@ describe("SiteHeader", () => {
       "https://savians.com/contact-us/"
     );
 
-    expect(within(desktopNavigation).queryByRole("link", { name: "Blogs" })).not.toBeInTheDocument();
+    expect(
+      within(desktopNavigation).queryByRole("link", { name: "Blogs" })
+    ).not.toBeInTheDocument();
   });
 
   it("provides the shared portal actions and keeps a compact mobile navigation", () => {
@@ -56,17 +64,7 @@ describe("SiteHeader", () => {
       expect(link).toHaveAttribute("target", "_blank");
     }
 
-    const consultationLink = screen.getByRole("link", { name: "Schedule a Consultation" });
-    expect(consultationLink).toHaveAttribute("href", "https://calendly.com/contactus-savians/30min");
-    expect(consultationLink).toHaveAttribute("target", "_blank");
-    expect(consultationLink.closest("nav")).toBeNull();
-    expect(consultationLink.closest("header")).toBeNull();
-    expect(consultationLink).toHaveClass(
-      "bg-[#ffcc57]",
-      "text-[#1a244d]",
-      "hover:bg-[#f2bd3d]",
-      "focus-visible:outline-[#1a244d]"
-    );
+    expect(screen.queryByRole("link", { name: "Schedule a Consultation" })).not.toBeInTheDocument();
 
     expect(screen.queryByRole("link", { name: /Back to Home/i })).not.toBeInTheDocument();
 
