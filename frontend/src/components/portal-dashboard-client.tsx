@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   ChevronRight,
   FileUp,
-  LogOut,
   Plus,
   Save,
   Send,
@@ -40,8 +39,7 @@ import {
 import {
   clearStoredPortalAccessToken,
   getCurrentPortalAccessToken,
-  getPortalIdentity,
-  signOutFromPortal
+  getPortalIdentity
 } from "@/services/portal-auth";
 import {
   Button,
@@ -804,20 +802,6 @@ export function PortalDashboardClient() {
     }
   }
 
-  function handleSignOut() {
-    signOutFromPortal();
-    setAccessToken("");
-    setDashboard(null);
-    setProfileDraft(emptyProfileDraft());
-    setProperties([]);
-    setBusinessInvestments([]);
-    setSelectedPropertyIndex(null);
-    setSelectedBusinessIndex(null);
-    setError(null);
-    setIssues([]);
-    setMessage("You have been signed out.");
-  }
-
   const updateProfile = (next: Partial<PortalProfilePayload>) =>
     setProfileDraft((current) => ({ ...current, profile: { ...current.profile, ...next } }));
   const updateAssessmentContext = (next: Partial<ProfileDraft["assessmentContext"]>) =>
@@ -918,28 +902,17 @@ export function PortalDashboardClient() {
           <div className="flex flex-col items-start gap-2 sm:items-end">
             <div className="flex flex-wrap items-center gap-3">
               <StatusPill label={dashboard.assessmentStatus.label} />
-              <Button
-                type="button"
-                className={
-                  canMarkReady
-                    ? "bg-[#FFCC57] text-[#1A244D] shadow-sm hover:bg-[#e7bd52] focus-visible:ring-gold-500 disabled:bg-[#ffe3a0] disabled:text-[#59617e] disabled:opacity-70"
-                    : undefined
-                }
-                onClick={() => void openReadyConfirmation()}
-                disabled={readySubmitting || !canMarkReady}
-              >
-                <Send aria-hidden size={16} />
-                {canMarkReady ? "Submit for Review" : dashboard.assessmentStatus.label}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleSignOut}
-                disabled={saving || readySubmitting}
-              >
-                <LogOut aria-hidden size={16} />
-                Logout
-              </Button>
+              {canMarkReady ? (
+                <Button
+                  type="button"
+                  className="bg-[#FFCC57] text-[#1A244D] shadow-sm hover:bg-[#e7bd52] focus-visible:ring-gold-500 disabled:bg-[#ffe3a0] disabled:text-[#59617e] disabled:opacity-70"
+                  onClick={() => void openReadyConfirmation()}
+                  disabled={readySubmitting}
+                >
+                  <Send aria-hidden size={16} />
+                  Submit for Review
+                </Button>
+              ) : null}
             </div>
             {canMarkReady ? (
               <p className="max-w-md text-left text-xs leading-5 text-slate-500 sm:text-right">

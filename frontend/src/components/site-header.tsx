@@ -1,7 +1,13 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { Menu } from "lucide-react";
-import { SiteHeaderAccountAction } from "@/components/site-header-account-action";
+import { useState } from "react";
+import {
+  SiteHeaderAccountAction,
+  type SiteHeaderSessionState
+} from "@/components/site-header-account-action";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const navigationLinks = [
@@ -50,6 +56,9 @@ function ReferralPartnerLink({ mobile = false }: { mobile?: boolean }) {
 }
 
 export function SiteHeader() {
+  const [sessionState, setSessionState] = useState<SiteHeaderSessionState>("checking");
+  const showPublicNavigation = sessionState === "unauthenticated";
+
   return (
     <header className="border-b border-slate-200 bg-white sm:px-4 sm:pt-3 min-[1500px]:px-0 min-[1500px]:pt-[13px]">
       <nav
@@ -73,15 +82,15 @@ export function SiteHeader() {
 
         <div
           className="hidden min-w-0 items-center justify-center px-5 min-[1500px]:flex"
-          role="group"
-          aria-label="Desktop navigation"
+          role={showPublicNavigation ? "group" : undefined}
+          aria-label={showPublicNavigation ? "Desktop navigation" : undefined}
         >
-          <NavigationLinks />
+          {showPublicNavigation ? <NavigationLinks /> : null}
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-2 min-[1500px]:ml-0">
           <ThemeToggle />
-          <SiteHeaderAccountAction />
+          <SiteHeaderAccountAction onSessionStateChange={setSessionState} />
           <ReferralPartnerLink />
         </div>
 
@@ -91,7 +100,7 @@ export function SiteHeader() {
             <span className="sr-only">Open navigation menu</span>
           </summary>
           <div className="savians-mobile-menu absolute right-0 z-50 mt-3 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-[#1a244d]/20 bg-[#ffcc57] p-4 text-[#1a244d] shadow-card">
-            <NavigationLinks mobile />
+            {showPublicNavigation ? <NavigationLinks mobile /> : null}
             <ReferralPartnerLink mobile />
           </div>
         </details>

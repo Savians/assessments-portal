@@ -10,47 +10,60 @@ import {
   signOutFromPortal
 } from "@/services/portal-auth";
 
-type SessionState = "checking" | "authenticated" | "unauthenticated";
+export type SiteHeaderSessionState = "checking" | "authenticated" | "unauthenticated";
+
+type SiteHeaderAccountActionProps = {
+  onSessionStateChange?: (state: SiteHeaderSessionState) => void;
+};
 
 const accountActionClassName =
   "focus-ring inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-[#1a244d] bg-[#1a244d] px-3 text-sm font-normal text-white transition hover:border-[#26366f] hover:bg-[#26366f] min-[1500px]:w-[7.25rem] min-[1500px]:px-0 min-[1600px]:text-base";
 
-export function SiteHeaderAccountAction() {
+export function SiteHeaderAccountAction({
+  onSessionStateChange
+}: SiteHeaderAccountActionProps = {}) {
   const pathname = usePathname();
   const router = useRouter();
-  const [sessionState, setSessionState] = useState<SessionState>("checking");
+  const [sessionState, setSessionState] = useState<SiteHeaderSessionState>("checking");
 
   useEffect(() => {
     let active = true;
     setSessionState("checking");
+    onSessionStateChange?.("checking");
 
     void getCurrentPortalAccessToken()
       .then((token) => {
         if (!active) return;
         if (!token) {
           setSessionState("unauthenticated");
+          onSessionStateChange?.("unauthenticated");
           return;
         }
 
         const { role } = getPortalIdentity(token);
-        setSessionState(
+        const nextSessionState =
           role === "ADMIN" || role === "SUPER_ADMIN" || role === "ASSESSMENT_CLIENT"
             ? "authenticated"
-            : "unauthenticated"
-        );
+            : "unauthenticated";
+        setSessionState(nextSessionState);
+        onSessionStateChange?.(nextSessionState);
       })
       .catch(() => {
-        if (active) setSessionState("unauthenticated");
+        if (active) {
+          setSessionState("unauthenticated");
+          onSessionStateChange?.("unauthenticated");
+        }
       });
 
     return () => {
       active = false;
     };
-  }, [pathname]);
+  }, [onSessionStateChange, pathname]);
 
   function logout() {
     signOutFromPortal();
     setSessionState("unauthenticated");
+    onSessionStateChange?.("unauthenticated");
     router.replace("/");
   }
 

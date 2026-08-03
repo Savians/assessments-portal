@@ -33,6 +33,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("SiteHeaderAccountAction", () => {
+  it("reports checking and the resolved signed-out session to the header", async () => {
+    const onSessionStateChange = vi.fn();
+    mocks.getCurrentPortalAccessToken.mockResolvedValue("");
+
+    render(<SiteHeaderAccountAction onSessionStateChange={onSessionStateChange} />);
+
+    await screen.findByRole("link", { name: "Sign On" });
+    expect(onSessionStateChange.mock.calls.map(([state]) => state)).toEqual([
+      "checking",
+      "unauthenticated"
+    ]);
+  });
+
   it("shows Sign On when no valid portal session exists", async () => {
     mocks.getCurrentPortalAccessToken.mockResolvedValue("");
 

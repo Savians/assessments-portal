@@ -1,29 +1,54 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SiteHeader } from "./site-header";
+
+const headerSession = vi.hoisted(() => ({
+  state: "unauthenticated" as "checking" | "authenticated" | "unauthenticated"
+}));
 
 vi.mock("@/components/theme-toggle", () => ({
   ThemeToggle: () => <button type="button">Switch theme</button>
 }));
 
 vi.mock("@/components/site-header-account-action", async () => {
+  const React = await import("react");
   const { default: Link } = await import("next/link");
   return {
-    SiteHeaderAccountAction: () => <Link href="/login">Sign On</Link>
+    SiteHeaderAccountAction: ({
+      onSessionStateChange
+    }: {
+      onSessionStateChange?: (state: typeof headerSession.state) => void;
+    }) => {
+      React.useEffect(() => {
+        onSessionStateChange?.(headerSession.state);
+      }, [onSessionStateChange]);
+
+      if (headerSession.state === "authenticated") {
+        return <button type="button">Log Out</button>;
+      }
+      if (headerSession.state === "checking") return <span>Account</span>;
+      return <Link href="/login">Sign On</Link>;
+    }
   };
+});
+
+beforeEach(() => {
+  headerSession.state = "unauthenticated";
 });
 
 afterEach(cleanup);
 
 describe("SiteHeader", () => {
-  it("uses the official Savians logo and main-site navigation", () => {
+  it("uses the official Savians logo and main-site navigation when signed out", async () => {
     render(<SiteHeader />);
 
     const logo = screen.getByRole("img", { name: "Savians Tax Advisors" });
     expect(decodeURIComponent(logo.getAttribute("src") ?? "")).toContain("/savians-logo.png");
     expect(logo.closest("a")).toHaveAttribute("href", "https://savians.com/");
 
-    const desktopNavigation = screen.getByRole("group", { name: "Desktop navigation" });
+    const desktopNavigation = await screen.findByRole("group", {
+      name: "Desktop navigation"
+    });
     expect(desktopNavigation).toHaveClass("min-[1500px]:flex", "justify-center");
     expect(within(desktopNavigation).getByRole("link", { name: "Home" })).toHaveAttribute(
       "href",
@@ -50,9 +75,10 @@ describe("SiteHeader", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("provides the shared portal actions and keeps a compact mobile navigation", () => {
+  it("provides the shared portal actions and keeps a compact mobile navigation", async () => {
     render(<SiteHeader />);
 
+    await screen.findByRole("group", { name: "Desktop navigation" });
     expect(screen.getByText("Open navigation menu")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sign On" })).toHaveAttribute("href", "/login");
     expect(screen.getByRole("button", { name: "Switch theme" })).toBeInTheDocument();
@@ -87,5 +113,30 @@ describe("SiteHeader", () => {
       "min-[1500px]:grid-cols-[auto_minmax(0,1fr)_auto]",
       "min-[1500px]:py-0"
     );
+  });
+
+  it("hides every public menu option on desktop and mobile while authenticated", async () => {
+    headerSession.state = "authenticated";
+    render(<SiteHeader />);
+
+    expect(await screen.findByRole("button", { name: "Log Out" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("group", { name: "Desktop navigation" })).not.toBeInTheDocument()
+    );
+
+    for (const label of ["Home", "About Us", "Start Tax Assessment", "Services", "Contact"]) {
+      expect(screen.queryByRole("link", { name: label })).not.toBeInTheDocument();
+    }
+  });
+
+  it("does not flash public menu options while the session is being checked", () => {
+    headerSession.state = "checking";
+    render(<SiteHeader />);
+
+    expect(screen.getByText("Account")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Desktop navigation" })).not.toBeInTheDocument();
+    for (const label of ["Home", "About Us", "Start Tax Assessment", "Services", "Contact"]) {
+      expect(screen.queryByRole("link", { name: label })).not.toBeInTheDocument();
+    }
   });
 });

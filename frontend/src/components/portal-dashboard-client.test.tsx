@@ -415,6 +415,21 @@ describe("PortalDashboardClient", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows one In Progress status and relies on the header for logout", async () => {
+    api.loadPortalDashboard.mockResolvedValue({
+      ...dashboard,
+      assessmentStatus: { raw: "IN_PROGRESS", label: "In Progress" }
+    });
+
+    render(<PortalDashboardClient />);
+
+    expect(await screen.findByRole("heading", { name: "Kiro Savians" })).toBeInTheDocument();
+    expect(screen.getAllByText("In Progress")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "In Progress" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Submit for Review" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Logout" })).not.toBeInTheDocument();
+  });
+
   it.each([
     {
       ownershipField: "Homeowner?",
