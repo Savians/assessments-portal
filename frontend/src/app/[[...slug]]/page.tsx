@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, LockKeyhole, ReceiptText, ShieldCheck } from "lucide-react";
 import { Card, StatusBadge, Stepper } from "@/components/ui";
+import { HomeSessionRedirect } from "@/components/home-session-redirect";
 import { ONBOARDING_STEPS } from "@/lib/assessment-flow";
 import { formatServiceAmount } from "@/lib/constants";
 
@@ -214,7 +215,13 @@ export default async function CatchAllPage({
 }) {
   const { slug = [] } = await params;
   const path = slug.join("/");
-  if (!path) return <LandingPage />;
+  if (!path) {
+    return (
+      <HomeSessionRedirect>
+        <LandingPage />
+      </HomeSessionRedirect>
+    );
+  }
 
   if (path.startsWith("assessment/agreement/")) {
     return (
