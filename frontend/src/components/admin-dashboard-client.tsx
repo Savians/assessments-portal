@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Eye,
   LayoutDashboard,
-  LogOut,
   Plus,
   RefreshCw,
   Search,
@@ -38,8 +37,7 @@ import {
 } from "@/services/admin-api";
 import {
   getCurrentPortalAccessToken,
-  getPortalIdentity,
-  signOutFromPortal
+  getPortalIdentity
 } from "@/services/portal-auth";
 
 type AdminTab = "overview" | "clients";
@@ -134,6 +132,12 @@ export function AdminDashboardClient() {
     if (token) void loadAll(token);
   }, [loadAll, token]);
 
+  useEffect(() => {
+    if (!error) return;
+    const timeout = window.setTimeout(() => setError(null), 2_000);
+    return () => window.clearTimeout(timeout);
+  }, [error]);
+
   const cards = useMemo<Array<[string, number]>>(
     () =>
       overview
@@ -149,10 +153,6 @@ export function AdminDashboardClient() {
     [overview]
   );
 
-  function logout() {
-    signOutFromPortal();
-    router.replace("/login");
-  }
   async function previewInvoice(sessionId: string) {
     const previewWindow = window.open("about:blank", "_blank");
     if (!previewWindow) {
@@ -230,10 +230,6 @@ export function AdminDashboardClient() {
             >
               <RefreshCw aria-hidden size={16} className={refreshing ? "animate-spin" : ""} />
               Refresh
-            </Button>
-            <Button variant="outline" onClick={logout}>
-              <LogOut aria-hidden size={16} />
-              Logout
             </Button>
           </div>
         </div>

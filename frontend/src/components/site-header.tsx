@@ -62,7 +62,7 @@ export function SiteHeader() {
   return (
     <header className="border-b border-slate-200 bg-white sm:px-4 sm:pt-3 min-[1500px]:px-0 min-[1500px]:pt-[13px]">
       <nav
-        className="savians-brand-header mx-auto flex min-h-[73px] w-full max-w-[1728px] items-center bg-[#ffcc57] px-4 py-3 text-navy-900 sm:min-h-16 sm:rounded-[20px] sm:px-5 sm:py-2 min-[1500px]:grid min-[1500px]:h-[63px] min-[1500px]:min-h-[63px] min-[1500px]:w-[90%] min-[1500px]:max-w-none min-[1500px]:grid-cols-[auto_minmax(0,1fr)_auto] min-[1500px]:py-0"
+        className="savians-brand-header relative mx-auto flex min-h-[73px] w-full max-w-[1728px] items-center bg-[#ffcc57] px-4 py-3 text-navy-900 sm:min-h-16 sm:rounded-[20px] sm:px-5 sm:py-2 min-[1500px]:grid min-[1500px]:h-[63px] min-[1500px]:min-h-[63px] min-[1500px]:w-[90%] min-[1500px]:max-w-none min-[1500px]:grid-cols-[auto_minmax(0,1fr)_auto] min-[1500px]:py-0"
         aria-label="Primary navigation"
       >
         <a
@@ -79,6 +79,12 @@ export function SiteHeader() {
             className="h-10 w-auto box-border rounded-[5px] border border-[#0f1b4d]/70 p-px shadow-[0_3px_0_rgba(15,27,77,0.9),0_6px_12px_rgba(7,13,31,0.22)] sm:h-12"
           />
         </a>
+
+        {sessionState === "authenticated" ? (
+          <p className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 whitespace-nowrap text-center text-lg font-bold tracking-wide text-[#1a244d] min-[1280px]:block">
+            Savians Tax Assessment Portal
+          </p>
+        ) : null}
 
         <div
           className="hidden min-w-0 items-center justify-center px-5 min-[1500px]:flex"

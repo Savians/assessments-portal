@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminClientSummary, AdminOverview, Paginated } from "@/services/admin-api";
 import { AdminDashboardClient } from "./admin-dashboard-client";
@@ -107,6 +107,7 @@ describe("AdminDashboardClient", () => {
     render(<AdminDashboardClient />);
 
     expect(await screen.findByRole("heading", { name: "Client Operations" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Logout" })).not.toBeInTheDocument();
 
     const overviewTab = screen.getByRole("button", { name: "Overview" });
     const dashboardNavigation = overviewTab.parentElement!;
@@ -130,5 +131,18 @@ describe("AdminDashboardClient", () => {
     expect(
       within(paidRow).getByRole("button", { name: "No QuickBooks invoice is available" })
     ).toBeDisabled();
+  });
+
+  it("automatically dismisses admin errors after two seconds", async () => {
+    api.loadAdminOverview.mockRejectedValueOnce(new Error("We could not load client operations."));
+
+    render(<AdminDashboardClient />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "We could not load client operations."
+    );
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument(), {
+      timeout: 3_000
+    });
   });
 });

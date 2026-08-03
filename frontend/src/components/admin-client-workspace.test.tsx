@@ -315,5 +315,12 @@ describe("AdminClientWorkspace", () => {
     expect(
       await screen.findByText(/failed-document\.pdf could not be uploaded/)
     ).toBeInTheDocument();
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByText(/failed-document\.pdf could not be uploaded/)
+        ).not.toBeInTheDocument(),
+      { timeout: 3_000 }
+    );
   });
 });

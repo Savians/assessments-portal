@@ -369,6 +369,11 @@ export function AdminClientWorkspace({ sessionId }: { sessionId: string }) {
     const requested = searchParams.get("tab");
     if (tabs.some(([id]) => id === requested)) setTab(requested as Tab);
   }, [searchParams]);
+  useEffect(() => {
+    if (!error) return;
+    const timeout = window.setTimeout(() => setError(null), 2_000);
+    return () => window.clearTimeout(timeout);
+  }, [error]);
 
   const canChangeStatus =
     detail && ["DOCUMENTS_SUBMITTED", "IN_PROGRESS", "COMPLETED"].includes(detail.status);
