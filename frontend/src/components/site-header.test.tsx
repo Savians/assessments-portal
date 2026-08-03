@@ -45,6 +45,7 @@ describe("SiteHeader", () => {
     const logo = screen.getByRole("img", { name: "Savians Tax Advisors" });
     expect(decodeURIComponent(logo.getAttribute("src") ?? "")).toContain("/savians-logo.png");
     expect(logo.closest("a")).toHaveAttribute("href", "https://savians.com/");
+    expect(logo).toHaveClass("rounded-[5px]", "border-[#0f1b4d]/70", "p-px");
 
     const desktopNavigation = await screen.findByRole("group", {
       name: "Desktop navigation"

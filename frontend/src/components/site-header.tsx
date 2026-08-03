@@ -76,7 +76,7 @@ export function SiteHeader() {
             width={1996}
             height={773}
             priority
-            className="h-10 w-auto sm:h-12"
+            className="h-10 w-auto box-border rounded-[5px] border border-[#0f1b4d]/70 p-px shadow-[0_3px_0_rgba(15,27,77,0.9),0_6px_12px_rgba(7,13,31,0.22)] sm:h-12"
           />
         </a>
 
