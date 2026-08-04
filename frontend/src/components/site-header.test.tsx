@@ -121,11 +121,16 @@ describe("SiteHeader", () => {
     render(<SiteHeader />);
 
     expect(await screen.findByRole("button", { name: "Log Out" })).toBeInTheDocument();
-    expect(screen.getByText("Savians Tax Assessment Portal")).toHaveClass(
+    const portalTitle = screen.getByLabelText("Savians Tax Assessment Portal");
+    expect(portalTitle).toHaveClass(
+      "savians-portal-title",
       "absolute",
       "left-1/2",
+      "top-1/2",
       "text-center"
     );
+    expect(portalTitle).toHaveTextContent("Savians");
+    expect(portalTitle).toHaveTextContent("Tax Assessment Portal");
     await waitFor(() =>
       expect(screen.queryByRole("group", { name: "Desktop navigation" })).not.toBeInTheDocument()
     );
@@ -140,7 +145,7 @@ describe("SiteHeader", () => {
     render(<SiteHeader />);
 
     expect(screen.getByText("Account")).toBeInTheDocument();
-    expect(screen.queryByText("Savians Tax Assessment Portal")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Savians Tax Assessment Portal")).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Desktop navigation" })).not.toBeInTheDocument();
     for (const label of ["Home", "About Us", "Start Tax Assessment", "Services", "Contact"]) {
       expect(screen.queryByRole("link", { name: label })).not.toBeInTheDocument();

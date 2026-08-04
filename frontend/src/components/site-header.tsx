@@ -81,8 +81,17 @@ export function SiteHeader() {
         </a>
 
         {sessionState === "authenticated" ? (
-          <p className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 whitespace-nowrap text-center text-lg font-bold tracking-wide text-[#1a244d] min-[1280px]:block">
-            Savians Tax Assessment Portal
+          <p
+            aria-label="Savians Tax Assessment Portal"
+            className="savians-portal-title pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center whitespace-nowrap text-center text-[#14235c] min-[1280px]:flex"
+          >
+            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-[#46547f]">
+              Savians
+            </span>
+            <span aria-hidden className="mx-3 h-6 w-px bg-[#14235c]/35" />
+            <span className="text-[1.35rem] font-bold leading-none tracking-[-0.025em]">
+              Tax Assessment Portal
+            </span>
           </p>
         ) : null}
 

@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -123,6 +123,9 @@ a { color: inherit; text-decoration: none; }
 .savians-brand-header {
   background-color: #ffcc57;
   color: #1a244d;
+  font-family: "Barlow", Arial, Helvetica, sans-serif;
+}
+.savians-portal-title {
   font-family: "Barlow", Arial, Helvetica, sans-serif;
 }
 .dark .savians-brand-header,
